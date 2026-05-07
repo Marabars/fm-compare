@@ -48,17 +48,21 @@ class WorkbookData:
 
 
 def _safe_value(cell: Any) -> Any:
-    """Returns cached value (not formula) from a cell."""
-    if cell.data_type == "e":
-        return f"#ERROR:{cell.value}"
-    return cell.value
+    """Returns cached value from a cell. Returns None for EmptyCell."""
+    v = getattr(cell, "value", None)
+    if v is None:
+        return None
+    dt = getattr(cell, "data_type", None)
+    if dt == "e":
+        return f"#ERROR:{v}"
+    return v
 
 
 def _formula_str(cell: Any) -> str | None:
-    if cell.data_type == "f" or (
-        isinstance(cell.value, str) and cell.value.startswith("=")
-    ):
-        return str(cell.value)
+    v = getattr(cell, "value", None)
+    dt = getattr(cell, "data_type", None)
+    if dt == "f" or (isinstance(v, str) and v.startswith("=")):
+        return str(v)
     return None
 
 
@@ -113,12 +117,12 @@ def load_workbook_data(
 
         for r_idx, (val_row, fml_row) in enumerate(zip(val_rows, fml_rows), start=1):
             for c_idx, (vc, fc) in enumerate(zip(val_row, fml_row), start=1):
-                row = vc.row if vc.row else r_idx
-                col = vc.column if vc.column else c_idx
+                row = r_idx
+                col = c_idx
 
                 value = _safe_value(vc)
                 formula = _formula_str(fc)
-                comment = vc.comment.text if vc.comment else None
+                comment = (vc.comment.text if vc.comment else None) if hasattr(vc, "comment") else None
                 hidden = sd.row_hidden.get(row, False)
 
                 if value is None and formula is None and comment is None:
