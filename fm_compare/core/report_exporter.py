@@ -119,12 +119,15 @@ def export_report(
     # Set Executive Summary as first active sheet
     wb.active = wb["Executive Summary"]
 
-    # Write to temp first, then move to final path
+    # Write to temp, then atomically replace final path.
+    # Path.replace() is safer than rename(); shutil.move handles cross-device (UNC) moves.
+    import shutil
     tmp = output_path.with_suffix(".tmp.xlsx")
     wb.save(str(tmp))
-    if output_path.exists():
-        output_path.unlink()
-    tmp.rename(output_path)
+    try:
+        tmp.replace(output_path)
+    except OSError:
+        shutil.move(str(tmp), str(output_path))
 
     log.info(f"Report exported ({output_path.stat().st_size // 1024} KB)")
     return output_path

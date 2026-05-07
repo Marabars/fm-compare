@@ -59,10 +59,11 @@ def _safe_value(cell: Any) -> Any:
 
 
 def _formula_str(cell: Any) -> str | None:
-    v = getattr(cell, "value", None)
+    # Only trust data_type == "f"; startswith("=") misidentifies literal text cells.
     dt = getattr(cell, "data_type", None)
-    if dt == "f" or (isinstance(v, str) and v.startswith("=")):
-        return str(v)
+    if dt == "f":
+        v = getattr(cell, "value", None)
+        return str(v) if v is not None else None
     return None
 
 
@@ -106,38 +107,45 @@ def load_workbook_data(
         sd.max_row = ws_val.max_row or 0
         sd.max_col = ws_val.max_column or 0
 
-        # Collect hidden rows
+        # read_only=True does not populate row_dimensions — hidden rows won't be detected.
         if hasattr(ws_val, "row_dimensions"):
             for row_idx, rd in ws_val.row_dimensions.items():
                 sd.row_hidden[row_idx] = rd.hidden or False
 
-        # Read cells
+        # Skip iter_rows on empty sheets — avoids TypeError when max_row is None.
+        if sd.max_row == 0 or sd.max_col == 0:
+            result.sheets[sheet_name] = sd
+            log.info("Sheet loaded: 0 cells (empty)")
+            continue
+
         val_rows = list(ws_val.iter_rows())
         fml_rows = list(ws_fml.iter_rows())
 
+        if len(val_rows) != len(fml_rows):
+            log.warning(
+                f"Val/formula row count mismatch (val={len(val_rows)}, fml={len(fml_rows)})"
+            )
+
         for r_idx, (val_row, fml_row) in enumerate(zip(val_rows, fml_rows), start=1):
             for c_idx, (vc, fc) in enumerate(zip(val_row, fml_row), start=1):
-                row = r_idx
-                col = c_idx
-
                 value = _safe_value(vc)
                 formula = _formula_str(fc)
                 comment = (vc.comment.text if vc.comment else None) if hasattr(vc, "comment") else None
-                hidden = sd.row_hidden.get(row, False)
+                hidden = sd.row_hidden.get(r_idx, False)
 
                 if value is None and formula is None and comment is None:
                     continue
 
-                addr = CellAddress(sheet=sheet_name, row=row, col=col)
+                addr = CellAddress(sheet=sheet_name, row=r_idx, col=c_idx)
                 cd = CellData(
                     address=addr,
                     value=value,
                     formula=formula,
-                    data_type=vc.data_type or "n",
+                    data_type=getattr(vc, "data_type", None) or "n",
                     comment=comment,
                     is_hidden_row=hidden,
                 )
-                sd.cells[(row, col)] = cd
+                sd.cells[(r_idx, c_idx)] = cd
 
         result.sheets[sheet_name] = sd
         log.info(f"Sheet loaded: {len(sd.cells)} cells")
@@ -199,7 +207,8 @@ def get_sheet_names(path: Path) -> list[str]:
         names = wb.sheetnames
         wb.close()
         return names
-    except Exception:
+    except Exception as e:
+        log.warning(f"get_sheet_names failed ({type(e).__name__})")
         return []
 
 
@@ -220,7 +229,7 @@ def find_period_headers(sd: SheetData, header_rows: int = 3) -> list[tuple[int, 
             from datetime import date, datetime as dt
             if isinstance(v, (date, dt)):
                 headers.append((row, col, v))
-            elif isinstance(v, (int, float)) and 2000 <= v <= 2100:
+            elif isinstance(v, (int, float)) and not isinstance(v, bool) and 2000 <= v <= 2100:
                 headers.append((row, col, int(v)))
             elif isinstance(v, str) and re.match(r"(20\d\d|Q[1-4]\s*20\d\d|\d{4}-\d{2})", v.strip()):
                 headers.append((row, col, v.strip()))

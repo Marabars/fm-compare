@@ -9,6 +9,7 @@ from typing import Any
 from fm_compare.core.excel_reader import WorkbookData, SheetData
 from fm_compare.core.business_dictionary import BusinessDictionary, KPIEntry
 from fm_compare.core.models import CellAddress, KPIValue
+from fm_compare.core.utils import is_numeric
 from fm_compare.security import safe_logger as log
 
 
@@ -17,7 +18,7 @@ def _find_summary_col(sd: SheetData) -> int | None:
     for col in range(3, min(sd.max_col + 1, 20)):
         non_empty = sum(1 for row in range(1, min(sd.max_row + 1, 50))
                         if sd.cells.get((row, col)) and
-                        isinstance(sd.cells[(row, col)].value, (int, float)))
+                        is_numeric(sd.cells[(row, col)].value))
         if non_empty > 3:
             return col
     return 3
@@ -58,13 +59,13 @@ def _get_aggregate_value(sd: SheetData, row: int, label_col: int = 2) -> tuple[A
 
     if summary_col:
         cd = sd.cells.get((row, summary_col))
-        if cd and isinstance(cd.value, (int, float)):
+        if cd and is_numeric(cd.value):
             return cd.value, summary_col
 
     # Fallback: rightmost non-empty numeric
     for col in range(label_col + 1, sd.max_col + 1):
         cd = sd.cells.get((row, col))
-        if cd and isinstance(cd.value, (int, float)):
+        if cd and is_numeric(cd.value):
             best_val = cd.value
             best_col = col
 
@@ -124,12 +125,12 @@ def build_kpi_comparison(
         impact = "neutral"
         note = ""
 
-        if isinstance(v1_val, (int, float)) and isinstance(v2_val, (int, float)):
+        if is_numeric(v1_val) and is_numeric(v2_val):
             delta = v2_val - v1_val
             if v1_val != 0:
                 delta_pct = (delta / abs(v1_val)) * 100
             else:
-                delta_pct = None if v2_val == 0 else float("inf")
+                delta_pct = None  # division by zero — no meaningful percentage
 
             if kpi_entry:
                 direction = kpi_entry.better_direction

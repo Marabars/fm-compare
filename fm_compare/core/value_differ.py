@@ -11,6 +11,7 @@ from fm_compare.core.business_dictionary import BusinessDictionary, get_material
 from fm_compare.core.models import (
     DiffRow, ChangeType, MatchType, CellAddress, Warning, Severity
 )
+from fm_compare.core.utils import is_numeric
 from fm_compare.security import safe_logger as log
 
 
@@ -224,13 +225,13 @@ def _make_diff_row(
     delta_pct: float | None = None
     sign_changed = False
 
-    if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+    if is_numeric(v1) and is_numeric(v2):
         delta = v2 - v1
         if v1 != 0:
             delta_pct = delta / abs(v1) * 100
         sign_changed = (v1 > 0 > v2) or (v1 < 0 < v2)
 
-    material = _is_material(delta, v1 if isinstance(v1, (int, float)) else None,
+    material = _is_material(delta, v1 if is_numeric(v1) else None,
                             abs_thresh, pct_thresh)
     if change_type in (ChangeType.HIDDEN_ROW, ChangeType.COMMENT):
         material = False

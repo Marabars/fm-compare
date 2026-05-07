@@ -7,6 +7,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+import logging
+_log = logging.getLogger("fm_compare")
+
 
 _SETTINGS_DIR = Path(os.environ.get("APPDATA", Path.home())) / "FM_Compare"
 _SETTINGS_FILE = _SETTINGS_DIR / "settings.json"
@@ -36,8 +39,8 @@ def load() -> dict[str, Any]:
             for k, v in stored.items():
                 if k in _DEFAULTS:
                     settings[k] = v
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f"Failed to load settings ({type(e).__name__}), using defaults")
     return settings
 
 
@@ -47,8 +50,8 @@ def save(settings: dict[str, Any]) -> None:
         safe = {k: v for k, v in settings.items() if k in _DEFAULTS}
         with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(safe, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        _log.error(f"Failed to save settings ({type(e).__name__})")
 
 
 def get(key: str) -> Any:

@@ -57,10 +57,16 @@ def run_compare(
     info_v1 = get_workbook_info(path_v1)
     info_v2 = get_workbook_info(path_v2)
 
-    # Union of selected sheets present in both
+    # Union of sheets actually loaded (may differ from requested if sheet was missing)
     sheets_v1_set = set(wb_v1.sheets.keys())
     sheets_v2_set = set(wb_v2.sheets.keys())
     selected_sheets = sorted(sheets_v1_set | sheets_v2_set)
+
+    if not (sheets_v1_set & sheets_v2_set):
+        raise ValueError(
+            "Нет общих листов между V1 и V2. "
+            "Проверьте выбранные листы — в обоих файлах должен быть хотя бы один одинаковый лист."
+        )
 
     # Warn for sheets present in one but not both
     for s in sheets_v1_set - sheets_v2_set:

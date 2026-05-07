@@ -9,6 +9,7 @@ from fm_compare.core.excel_reader import WorkbookData, SheetData, find_period_he
 from fm_compare.core.business_dictionary import BusinessDictionary, get_sheet_group
 from fm_compare.core.key_matcher import extract_keys
 from fm_compare.core.models import TimingShift, CellAddress, Warning, Severity
+from fm_compare.core.utils import is_numeric
 from fm_compare.security import safe_logger as log
 
 
@@ -73,8 +74,8 @@ def detect_timing_shifts(
                 col2 = period_cols_v2[period]
                 cd1 = sd_v1.cells.get((kr1.row, col1))
                 cd2 = sd_v2.cells.get((kr2.row, col2))
-                v1 = cd1.value if cd1 and isinstance(cd1.value, (int, float)) else 0.0
-                v2 = cd2.value if cd2 and isinstance(cd2.value, (int, float)) else 0.0
+                v1 = cd1.value if cd1 and is_numeric(cd1.value) else 0.0
+                v2 = cd2.value if cd2 and is_numeric(cd2.value) else 0.0
                 vals_v1.append((period, v1))
                 vals_v2.append((period, v2))
 
