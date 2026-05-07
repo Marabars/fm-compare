@@ -128,6 +128,7 @@ class Warning:
     message: str
     related_sheet: str = ""
     related_kpi: str = ""
+    related_cell: str = ""        # Excel notation, e.g. "P&L!E42" — empty if sheet-level only
     manual_check_required: bool = False
 
 

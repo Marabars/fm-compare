@@ -95,6 +95,8 @@ class ResultsView(ttk.Notebook):
             ("delta_pct", "Δ%", 70),
             ("impact", "Impact", 80),
             ("note", "Примечание", 160),
+            ("addr_v1", "Ячейка V1", 110),
+            ("addr_v2", "Ячейка V2", 110),
         ]
         kpi_frame = _TableFrame(self, kpi_cols)
         kpi_frame.configure_tags(self._TAGS)
@@ -122,6 +124,8 @@ class ResultsView(ttk.Notebook):
             ("sheet", "Лист", 110),
             ("key_v1", "Ключ V1", 200),
             ("key_v2", "Ключ V2", 200),
+            ("addr_v1", "Ячейка V1", 100),
+            ("addr_v2", "Ячейка V2", 100),
             ("match", "Сопост.", 70),
             ("conf", "Увер.", 54),
             ("v1", "V1", 100),
@@ -160,6 +164,8 @@ class ResultsView(ttk.Notebook):
             ("key", "Ключ", 220),
             ("shift", "Сдвиг (пер.)", 90),
             ("amount", "Объём", 120),
+            ("addr_v1", "Ячейка V1", 110),
+            ("addr_v2", "Ячейка V2", 110),
         ]
         ts_frame = _TableFrame(self, ts_cols)
         ts_frame.configure_tags(self._TAGS)
@@ -170,8 +176,9 @@ class ResultsView(ttk.Notebook):
         w_cols = [
             ("sev", "Severity", 80),
             ("cat", "Категория", 140),
-            ("msg", "Сообщение", 360),
-            ("sheet", "Лист", 120),
+            ("msg", "Сообщение", 340),
+            ("sheet", "Лист", 110),
+            ("cell", "Ячейка", 110),
             ("check", "Проверить", 70),
         ]
         w_frame = _TableFrame(self, w_cols)
@@ -252,6 +259,8 @@ class ResultsView(ttk.Notebook):
                 k.kpi_group, k.kpi_level, k.kpi_name, k.unit,
                 _fmt(k.value_v1), _fmt(k.value_v2), _fmt(k.delta), pct,
                 k.impact, k.note or "",
+                str(k.addr_v1) if k.addr_v1 else "",
+                str(k.addr_v2) if k.addr_v2 else "",
             ], tags=(tag,))
 
     def _load_top(self, diff_rows: list[DiffRow], top_x: int) -> None:
@@ -296,6 +305,8 @@ class ResultsView(ttk.Notebook):
             pct = f"{d.delta_pct:+.1f}%" if d.delta_pct else ""
             tab.add_row([
                 sheet, d.business_key_v1 or "", d.business_key_v2 or "",
+                str(d.addr_v1) if d.addr_v1 else "",
+                str(d.addr_v2) if d.addr_v2 else "",
                 d.match_type.value, f"{d.match_confidence:.0%}",
                 _fmt(d.value_v1), _fmt(d.value_v2), _fmt(d.delta), pct,
                 d.change_type.value,
@@ -326,6 +337,8 @@ class ResultsView(ttk.Notebook):
             tab.add_row([
                 s.sheet, s.kpi_group, s.business_key,
                 f"{s.periods_shifted:+d}", _fmt(s.amount_shifted),
+                str(s.addr_v1) if s.addr_v1 else "",
+                str(s.addr_v2) if s.addr_v2 else "",
             ], tags=(tag,))
 
     def _load_warnings(self, warnings: list[Warning]) -> None:
@@ -343,6 +356,7 @@ class ResultsView(ttk.Notebook):
             tab.add_row([
                 w.severity.value.upper(), w.category, w.message,
                 w.related_sheet or "",
+                w.related_cell or "",
                 "Да" if w.manual_check_required else "",
             ], tags=(tag,))
 

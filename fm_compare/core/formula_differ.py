@@ -133,6 +133,7 @@ def _compare_sheet_formulas(
                     category="partial_dependency",
                     message="Сложная формула — частичная трассировка зависимостей",
                     related_sheet=sheet_name,
+                    related_cell=str(addr_v2),
                     manual_check_required=True,
                 ))
 
@@ -143,6 +144,7 @@ def _compare_sheet_formulas(
                 category="formula_changed_value_same",
                 message="Изменена логика формулы, значение не изменилось",
                 related_sheet=sheet_name,
+                related_cell=str(addr_v2),
                 manual_check_required=True,
             ))
 

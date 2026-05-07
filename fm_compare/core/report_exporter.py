@@ -197,7 +197,7 @@ def _add_executive_summary(wb: Workbook, result: CompareResult, mode: CompareMod
 
 def _add_kpi_comparison(wb: Workbook, kpi_values: list[KPIValue]) -> None:
     ws = wb.create_sheet("KPI Comparison")
-    headers = ["Группа KPI", "Уровень", "KPI", "Ед.", "V1", "V2", "Δ", "Δ%", "Impact", "Примечание"]
+    headers = ["Группа KPI", "Уровень", "KPI", "Ед.", "V1", "V2", "Δ", "Δ%", "Impact", "Примечание", "Ячейка V1", "Ячейка V2"]
     for ci, h in enumerate(headers, 1):
         _h(ws, 1, ci, h)
 
@@ -221,6 +221,8 @@ def _add_kpi_comparison(wb: Workbook, kpi_values: list[KPIValue]) -> None:
         _cell(ws, ri, 8, pct, fill, align="center")
         _cell(ws, ri, 9, k.impact, fill, align="center")
         _cell(ws, ri, 10, k.note, fill)
+        _cell(ws, ri, 11, str(k.addr_v1) if k.addr_v1 else "", fill, align="center")
+        _cell(ws, ri, 12, str(k.addr_v2) if k.addr_v2 else "", fill, align="center")
 
     _auto_width(ws)
     _freeze(ws, "A2")
@@ -393,7 +395,7 @@ def _add_hidden_rows_changes(wb: Workbook, hidden_changes: list[dict]) -> None:
 def _add_warnings(wb: Workbook, warnings: list[Warning]) -> None:
     ws = wb.create_sheet("Warnings")
     ws.sheet_state = "hidden"
-    headers = ["Severity", "Категория", "Сообщение", "Лист", "KPI", "Ручная проверка"]
+    headers = ["Severity", "Категория", "Сообщение", "Лист", "Ячейка", "KPI", "Ручная проверка"]
     for ci, h in enumerate(headers, 1):
         _h(ws, 1, ci, h)
 
@@ -410,8 +412,9 @@ def _add_warnings(wb: Workbook, warnings: list[Warning]) -> None:
         _cell(ws, ri, 2, w.category, fill)
         _cell(ws, ri, 3, w.message, fill)
         _cell(ws, ri, 4, w.related_sheet, fill)
-        _cell(ws, ri, 5, w.related_kpi, fill)
-        _cell(ws, ri, 6, "Да" if w.manual_check_required else "Нет", fill, align="center")
+        _cell(ws, ri, 5, w.related_cell or "", fill, align="center")
+        _cell(ws, ri, 6, w.related_kpi, fill)
+        _cell(ws, ri, 7, "Да" if w.manual_check_required else "Нет", fill, align="center")
 
     _auto_width(ws)
     _freeze(ws, "A2")
