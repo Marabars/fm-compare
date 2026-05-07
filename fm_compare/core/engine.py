@@ -40,6 +40,7 @@ def run_compare(
     progress: ProgressCallback = _noop,
     kpi_overrides_v1: dict[str, CellAddress] | None = None,
     kpi_overrides_v2: dict[str, CellAddress] | None = None,
+    kpi_unit_overrides: dict[str, str] | None = None,
 ) -> CompareResult:
     """
     Full compare pipeline.  Call from a background thread.
@@ -89,6 +90,13 @@ def run_compare(
     kpi_v1 = extract_kpis(wb_v1, bd, addr_overrides=kpi_overrides_v1)
     kpi_v2 = extract_kpis(wb_v2, bd, addr_overrides=kpi_overrides_v2)
     kpi_values = build_kpi_comparison(kpi_v1, kpi_v2, bd)
+
+    # Apply user-confirmed units (override dictionary defaults)
+    if kpi_unit_overrides:
+        for kv in kpi_values:
+            u = kpi_unit_overrides.get(kv.kpi_name)
+            if u:
+                kv.unit = u
 
     # ── 3. Value diff ─────────────────────────────────────────────────────
     progress(40, "Сравнение значений…")

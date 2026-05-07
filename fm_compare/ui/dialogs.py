@@ -259,20 +259,29 @@ class KPIResolutionDialog(tk.Toplevel):
     """
 
     _COLS = [
-        ("kpi_name",  "KPI",           220),
-        ("kpi_group", "Группа",        110),
-        ("level",     "Ур.",            36),
-        ("label_v1",  "Строка V1",     190),
-        ("addr_v1",   "Ячейка V1",     110),
-        ("label_v2",  "Строка V2",     190),
-        ("addr_v2",   "Ячейка V2",     110),
-        ("source",    "Источник",       70),
+        ("kpi_name",  "KPI",             220),
+        ("kpi_group", "Группа",          110),
+        ("level",     "Ур.",              36),
+        ("label_v1",  "Строка V1",       175),
+        ("addr_v1",   "Ячейка V1",       105),
+        ("unit_v1",   "Ед. изм. V1",      80),
+        ("label_v2",  "Строка V2",       175),
+        ("addr_v2",   "Ячейка V2",       105),
+        ("unit_v2",   "Ед. изм. V2",      80),
+        ("source",    "Источник",          70),
     ]
+    # Column numbers (1-based) that the user may edit inline
+    _EDITABLE_COLS = {
+        5: "addr_v1",
+        6: "unit_v1",
+        8: "addr_v2",
+        9: "unit_v2",
+    }
 
     def __init__(self, parent, resolutions: list[KPIResolution]):
         super().__init__(parent)
-        self.title("Проверка адресов KPI — шаг 1 из 2")
-        self.geometry("1080x560")
+        self.title("Проверка адресов и единиц измерения KPI — шаг 1 из 2")
+        self.geometry("1200x560")
         self.resizable(True, True)
         self.grab_set()
 
@@ -293,13 +302,13 @@ class KPIResolutionDialog(tk.Toplevel):
         info = tk.Label(
             self,
             text=(
-                "Ниже показаны строки и ячейки, которые алгоритм нашёл для каждого KPI "
-                "в обоих файлах.\n"
-                "При необходимости исправьте адреса вручную (двойной щелчок) или "
-                "экспортируйте таблицу в Excel, отредактируйте и загрузите обратно.\n"
-                "Нажмите «Подтвердить и сравнить» чтобы запустить сравнение с этими адресами."
+                "Ниже показаны строки, ячейки и единицы измерения, которые алгоритм нашёл "
+                "для каждого KPI в обоих файлах.\n"
+                "Двойной щелчок по колонкам «Ячейка» или «Ед. изм.» — редактирование "
+                "прямо в таблице. Или экспортируйте в Excel, поправьте и загрузите обратно.\n"
+                "Нажмите «Подтвердить и сравнить» чтобы запустить сравнение."
             ),
-            justify="left", anchor="w", wraplength=1040,
+            justify="left", anchor="w", wraplength=1120,
             font=("TkDefaultFont", 9), fg="#444444",
         )
         info.pack(fill="x", padx=10, pady=(8, 2))
@@ -351,8 +360,8 @@ class KPIResolutionDialog(tk.Toplevel):
     def _row_values(self, res: KPIResolution) -> list:
         return [
             res.kpi_name, res.kpi_group, res.kpi_level,
-            res.label_v1, res.addr_v1,
-            res.label_v2, res.addr_v2,
+            res.label_v1, res.addr_v1, res.unit_v1,
+            res.label_v2, res.addr_v2, res.unit_v2,
             res.source,
         ]
 
@@ -385,15 +394,10 @@ class KPIResolutionDialog(tk.Toplevel):
         if not row_id:
             return
 
-        # Only allow editing addr_v1 (#5) and addr_v2 (#7)
         col_num = int(col_id.lstrip("#"))
-        if col_num not in (5, 7):
-            messagebox.showinfo(
-                "Редактирование",
-                "Для редактирования доступны только колонки «Ячейка V1» и «Ячейка V2».\n"
-                "Двойной щелчок по одной из них.",
-            )
-            return
+        field_key = self._EDITABLE_COLS.get(col_num)
+        if field_key is None:
+            return  # non-editable column — silently ignore
 
         bbox = self._tree.bbox(row_id, col_id)
         if not bbox:
@@ -408,16 +412,17 @@ class KPIResolutionDialog(tk.Toplevel):
         entry.focus_set()
         entry.select_range(0, "end")
 
-        field_key = "addr_v1" if col_num == 5 else "addr_v2"
-
         def _commit(event=None):
             new_val = entry_var.get().strip()
             entry.destroy()
-            # Find resolution by row index
             idx = self._tree.index(row_id)
             res = self._resolutions[idx]
-            self._apply_addr(res, field_key, new_val)
-            # Refresh row
+            if field_key in ("addr_v1", "addr_v2"):
+                self._apply_addr(res, field_key, new_val)
+            else:
+                # unit_v1 or unit_v2 — plain string, no validation needed
+                setattr(res, field_key, new_val)
+                res.source = "manual"
             self._tree.item(
                 row_id,
                 values=self._row_values(res),
@@ -502,14 +507,15 @@ class KPIResolutionDialog(tk.Toplevel):
             messagebox.showerror("Ошибка", "Не удалось загрузить таблицу.")
             return
 
-        # Merge: match by kpi_name, apply imported addr fields
+        # Merge: match by kpi_name, apply imported addr + unit fields
         by_name = {r.kpi_name: r for r in imported}
         for res in self._resolutions:
             imp = by_name.get(res.kpi_name)
             if imp is None:
                 continue
-            for fld in ("addr_v1", "sheet_v1", "row_v1", "col_v1",
-                        "addr_v2", "sheet_v2", "row_v2", "col_v2", "source"):
+            for fld in ("addr_v1", "sheet_v1", "row_v1", "col_v1", "unit_v1",
+                        "addr_v2", "sheet_v2", "row_v2", "col_v2", "unit_v2",
+                        "source"):
                 setattr(res, fld, getattr(imp, fld))
 
         self._populate()

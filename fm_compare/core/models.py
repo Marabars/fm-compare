@@ -151,6 +151,8 @@ class KPIResolution:
     col_v2: int | None = None
     label_v2: str = ""
     addr_v2: str = ""
+    unit_v1: str = ""           # unit detected from V1 sheet (e.g. "тыс. руб.")
+    unit_v2: str = ""           # unit detected from V2 sheet
     source: str = "auto"        # "auto" | "manual"
 
 

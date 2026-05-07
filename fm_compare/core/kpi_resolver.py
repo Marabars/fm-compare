@@ -49,14 +49,16 @@ _THIN = Border(
 )
 
 _COLUMNS = [
-    ("kpi_name",  "KPI — Показатель",      200),
-    ("kpi_group", "Группа",                 120),
-    ("level",     "Ур.",                      40),
-    ("label_v1",  "Найденная строка V1",     200),
-    ("addr_v1",   "Ячейка V1 (редактируй)", 130),
-    ("label_v2",  "Найденная строка V2",     200),
-    ("addr_v2",   "Ячейка V2 (редактируй)", 130),
-    ("source",    "Источник",                 80),
+    ("kpi_name",  "KPI — Показатель",        200),
+    ("kpi_group", "Группа",                   120),
+    ("level",     "Ур.",                        40),
+    ("label_v1",  "Найденная строка V1",       200),
+    ("addr_v1",   "Ячейка V1 (редактируй)",   130),
+    ("unit_v1",   "Ед. изм. V1 (редактируй)",  90),
+    ("label_v2",  "Найденная строка V2",       200),
+    ("addr_v2",   "Ячейка V2 (редактируй)",   130),
+    ("unit_v2",   "Ед. изм. V2 (редактируй)",  90),
+    ("source",    "Источник",                   80),
 ]
 
 
@@ -93,8 +95,8 @@ def export_resolutions_to_excel(
         fill = _FILL_EVEN if ri % 2 == 0 else None
         vals = [
             res.kpi_name, res.kpi_group, res.kpi_level,
-            res.label_v1, res.addr_v1,
-            res.label_v2, res.addr_v2,
+            res.label_v1, res.addr_v1, res.unit_v1,
+            res.label_v2, res.addr_v2, res.unit_v2,
             res.source,
         ]
         for ci, v in enumerate(vals, 1):
@@ -151,8 +153,13 @@ def import_resolutions_from_excel(
         if not kpi_name:
             continue
 
-        addr_v1_str = _str(row[4])
-        addr_v2_str = _str(row[6])
+        # Column layout (0-based): name, group, level,
+        #   label_v1[3], addr_v1[4], unit_v1[5],
+        #   label_v2[6], addr_v2[7], unit_v2[8], source[9]
+        addr_v1_str = _str(row[4]) if len(row) > 4 else ""
+        unit_v1_str = _str(row[5]) if len(row) > 5 else ""
+        addr_v2_str = _str(row[7]) if len(row) > 7 else ""
+        unit_v2_str = _str(row[8]) if len(row) > 8 else ""
 
         # Validate addresses if non-empty
         if addr_v1_str and parse_cell_address(addr_v1_str) is None:
@@ -167,7 +174,6 @@ def import_resolutions_from_excel(
             )
             addr_v2_str = ""
 
-        # Derive sheet/row/col from address strings
         def _decompose(addr_s: str):
             if not addr_s:
                 return "", None, None
@@ -179,7 +185,7 @@ def import_resolutions_from_excel(
         s1, r1, c1 = _decompose(addr_v1_str)
         s2, r2, c2 = _decompose(addr_v2_str)
 
-        source = _str(row[7]) if len(row) > 7 else "manual"
+        source = _str(row[9]) if len(row) > 9 else "manual"
         if source not in ("auto", "manual"):
             source = "manual"
 
@@ -188,11 +194,13 @@ def import_resolutions_from_excel(
             kpi_group=_str(row[1]),
             kpi_level=int(row[2]) if row[2] is not None else 2,
             search_pattern="",
-            label_v1=_str(row[3]),
+            label_v1=_str(row[3]) if len(row) > 3 else "",
             addr_v1=addr_v1_str,
+            unit_v1=unit_v1_str,
             sheet_v1=s1, row_v1=r1, col_v1=c1,
-            label_v2=_str(row[5]),
+            label_v2=_str(row[6]) if len(row) > 6 else "",
             addr_v2=addr_v2_str,
+            unit_v2=unit_v2_str,
             sheet_v2=s2, row_v2=r2, col_v2=c2,
             source=source,
         )

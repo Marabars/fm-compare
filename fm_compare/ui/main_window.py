@@ -342,8 +342,14 @@ class MainWindow(tk.Tk):
         confirmed = dlg.resolutions
         overrides_v1 = resolutions_to_overrides(confirmed, "v1")
         overrides_v2 = resolutions_to_overrides(confirmed, "v2")
+        # Use unit_v1 as the authoritative unit (V1 is the baseline)
+        unit_overrides = {
+            r.kpi_name: r.unit_v1
+            for r in confirmed
+            if r.unit_v1
+        }
 
-        # Phase 2: full compare with confirmed addresses
+        # Phase 2: full compare with confirmed addresses and units
         self._status.update(15, "Фаза 2: полное сравнение…")
 
         def phase2_worker() -> None:
@@ -358,6 +364,7 @@ class MainWindow(tk.Tk):
                     progress=self._on_progress,
                     kpi_overrides_v1=overrides_v1,
                     kpi_overrides_v2=overrides_v2,
+                    kpi_unit_overrides=unit_overrides,
                 )
                 self.after(0, self._on_compare_done, result)
             except Exception as exc:

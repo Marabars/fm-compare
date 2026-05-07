@@ -13,6 +13,33 @@ from fm_compare.core.utils import is_numeric
 from fm_compare.security import safe_logger as log
 
 
+_UNIT_RE = re.compile(
+    r"\b(тыс\.?\s*руб|млн\.?\s*руб|млрд\.?\s*руб|тыс|млн|млрд|руб\.?|%|шт\.?|чел\.?|кг|т\b|м2|м²|ед\.?)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _find_unit_in_row(sd: SheetData, row: int, label_col: int) -> str:
+    """
+    Scan the KPI row for a unit-of-measure string.
+    Checks columns 1 through label_col+1 (the cell just right of the label
+    is included because some layouts put the unit there).
+    Returns the shortest matching cell value; empty string if nothing found.
+    """
+    candidates: list[tuple[int, str]] = []
+    for col in range(1, label_col + 2):
+        cd = sd.cells.get((row, col))
+        if cd is None or cd.value is None:
+            continue
+        s = str(cd.value).strip()
+        if s and _UNIT_RE.search(s):
+            candidates.append((len(s), s))
+    if candidates:
+        candidates.sort()
+        return candidates[0][1]
+    return ""
+
+
 def _find_summary_col(sd: SheetData) -> int | None:
     """Find the column that likely contains summary/total values."""
     for col in range(3, min(sd.max_col + 1, 20)):
@@ -133,6 +160,7 @@ def resolve_kpis_preview(
             res.col_v1 = col
             res.label_v1 = str(label) if label is not None else ""
             res.addr_v1 = f"{sheet_name}!{get_column_letter(col)}{row_idx}"
+            res.unit_v1 = _find_unit_in_row(sd, row_idx, label_col) or kpi.unit
             break
 
         # Resolve V2
@@ -148,6 +176,7 @@ def resolve_kpis_preview(
             res.col_v2 = col
             res.label_v2 = str(label) if label is not None else ""
             res.addr_v2 = f"{sheet_name}!{get_column_letter(col)}{row_idx}"
+            res.unit_v2 = _find_unit_in_row(sd, row_idx, label_col) or kpi.unit
             break
 
         resolutions.append(res)
