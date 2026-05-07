@@ -34,7 +34,7 @@
     {"name_pattern": "CONTRACT", "group": "Служебные", "role": "contracts", "key_sheet": false, "analyze_by_default": false, "ignore_business_diff": true}
   ],
   "kpi_dictionary": [
-    {"name": "Выручка", "group": "Продажи", "level": 1, "unit": "руб.", "better_direction": "up", "search_pattern": "выручк|revenue|продаж", "search_in": "row_label"},
+    {"name": "Выручка", "group": "Продажи", "level": 1, "unit": "руб.", "better_direction": "up", "search_pattern": "выручк|revenue|^продажи?$|итого.*продаж|продажи.{0,10}итого", "search_in": "row_label"},
     {"name": "Поступления денежных средств", "group": "Денежный поток", "level": 1, "unit": "руб.", "better_direction": "up", "search_pattern": "поступлени|cash.{0,10}in|приход", "search_in": "row_label"},
     {"name": "Себестоимость / CAPEX / СМР", "group": "Затраты", "level": 1, "unit": "руб.", "better_direction": "down", "search_pattern": "себестоим|capex|смр|строительств", "search_in": "row_label"},
     {"name": "Прочие расходы", "group": "Затраты", "level": 1, "unit": "руб.", "better_direction": "down", "search_pattern": "прочие.{0,10}расход|проч.расх", "search_in": "row_label"},

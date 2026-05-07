@@ -30,7 +30,11 @@ def _find_kpi_row(
     label_col: int = 2,
 ) -> tuple[int, Any] | None:
     """
-    Find row matching KPI search pattern.
+    Find best-matching row for a KPI search pattern.
+    Scores candidates by match coverage (matched chars / label length): a
+    label that consists mostly of the matched fragment scores higher than a
+    long label that merely contains it.  Ties are broken by row position
+    (earlier wins) so that summary rows near the top of a sheet are preferred.
     Returns (row_index, label_cell_value) or None.
     """
     try:
@@ -38,14 +42,35 @@ def _find_kpi_row(
     except re.error:
         return None
 
+    best_row: int | None = None
+    best_label: Any = None
+    best_score: float = -1.0
+
     for row in range(1, sd.max_row + 1):
         cd = sd.cells.get((row, label_col))
         if cd is None or cd.value is None:
             continue
         label = str(cd.value).strip()
-        if pattern.search(label):
-            return row, label
-    return None
+        if not label:
+            continue
+        m = pattern.search(label)
+        if not m:
+            continue
+        # Score = start_bonus + coverage.
+        # start_bonus = 1.0 when the match begins at position 0 (the label
+        # _starts_ with the KPI term, e.g. "Выручка от реализации").  This
+        # guarantees any start-of-label match beats any mid-label match, even
+        # when mid-label coverage is numerically higher (e.g. "Период продаж").
+        # Coverage = matched_chars / label_len rewards concise, precise labels.
+        coverage = len(m.group()) / len(label)
+        start_bonus = 1.0 if m.start() == 0 else 0.0
+        score = start_bonus + coverage
+        if score > best_score:
+            best_score = score
+            best_row = row
+            best_label = label
+
+    return (best_row, best_label) if best_row is not None else None
 
 
 def _get_aggregate_value(sd: SheetData, row: int, label_col: int = 2) -> tuple[Any, int | None]:
