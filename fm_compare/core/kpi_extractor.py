@@ -8,7 +8,7 @@ from typing import Any
 
 from fm_compare.core.excel_reader import WorkbookData, SheetData
 from fm_compare.core.business_dictionary import BusinessDictionary, KPIEntry
-from fm_compare.core.models import CellAddress, KPIValue
+from fm_compare.core.models import CellAddress, KPIValue, KPIResolution
 from fm_compare.core.utils import is_numeric
 from fm_compare.security import safe_logger as log
 
@@ -97,20 +97,110 @@ def _get_aggregate_value(sd: SheetData, row: int, label_col: int = 2) -> tuple[A
     return best_val, best_col
 
 
+def resolve_kpis_preview(
+    wb_v1: WorkbookData,
+    wb_v2: WorkbookData,
+    bd: BusinessDictionary,
+    label_col: int = 2,
+) -> list[KPIResolution]:
+    """
+    Phase-1 preview: resolve KPI row/cell addresses for both workbooks
+    using the auto-search algorithm. Returns a list of KPIResolution
+    objects for the user to review and correct before the main compare.
+    """
+    from openpyxl.utils import get_column_letter
+
+    resolutions: list[KPIResolution] = []
+
+    for kpi in bd.kpi_dict:
+        res = KPIResolution(
+            kpi_name=kpi.name,
+            kpi_group=kpi.group,
+            kpi_level=kpi.level,
+            search_pattern=kpi.search_pattern,
+        )
+
+        # Resolve V1
+        for sheet_name, sd in wb_v1.sheets.items():
+            match = _find_kpi_row(sd, kpi, label_col)
+            if match is None:
+                continue
+            row_idx, label = match
+            _, col = _get_aggregate_value(sd, row_idx, label_col)
+            col = col or 3
+            res.sheet_v1 = sheet_name
+            res.row_v1 = row_idx
+            res.col_v1 = col
+            res.label_v1 = str(label) if label is not None else ""
+            res.addr_v1 = f"{sheet_name}!{get_column_letter(col)}{row_idx}"
+            break
+
+        # Resolve V2
+        for sheet_name, sd in wb_v2.sheets.items():
+            match = _find_kpi_row(sd, kpi, label_col)
+            if match is None:
+                continue
+            row_idx, label = match
+            _, col = _get_aggregate_value(sd, row_idx, label_col)
+            col = col or 3
+            res.sheet_v2 = sheet_name
+            res.row_v2 = row_idx
+            res.col_v2 = col
+            res.label_v2 = str(label) if label is not None else ""
+            res.addr_v2 = f"{sheet_name}!{get_column_letter(col)}{row_idx}"
+            break
+
+        resolutions.append(res)
+
+    return resolutions
+
+
+def _resolution_to_addr(
+    res: KPIResolution,
+    version: str,
+) -> CellAddress | None:
+    """Convert a KPIResolution to a CellAddress for the given version ("v1"/"v2")."""
+    if version == "v1":
+        sheet, row, col = res.sheet_v1, res.row_v1, res.col_v1
+    else:
+        sheet, row, col = res.sheet_v2, res.row_v2, res.col_v2
+    if not sheet or row is None or col is None:
+        return None
+    return CellAddress(sheet=sheet, row=row, col=col)
+
+
 def extract_kpis(
     wb: WorkbookData,
     bd: BusinessDictionary,
     label_col: int = 2,
+    addr_overrides: dict[str, CellAddress] | None = None,
 ) -> dict[str, tuple[Any, CellAddress | None]]:
     """
     Extract all KPI values from workbook.
     Returns dict: kpi_name → (value, CellAddress).
-    Searches all sheets, uses first match found.
+
+    If addr_overrides is provided (kpi_name → CellAddress), the override
+    address is used directly (reading the cell value from the workbook)
+    instead of running the row-search algorithm.
     """
     results: dict[str, tuple[Any, CellAddress | None]] = {}
     found = 0
 
     for kpi in bd.kpi_dict:
+        # Use confirmed override if available
+        if addr_overrides and kpi.name in addr_overrides:
+            addr = addr_overrides[kpi.name]
+            sd = wb.sheets.get(addr.sheet)
+            if sd is not None:
+                cd = sd.cells.get((addr.row, addr.col))
+                value = cd.value if cd else None
+                results[kpi.name] = (value, addr)
+                if value is not None:
+                    found += 1
+            else:
+                results[kpi.name] = (None, None)
+            continue
+
         for sheet_name, sd in wb.sheets.items():
             match = _find_kpi_row(sd, kpi, label_col)
             if match is None:
@@ -123,7 +213,8 @@ def extract_kpis(
                 found += 1
                 break
         else:
-            results[kpi.name] = (None, None)
+            if kpi.name not in results:
+                results[kpi.name] = (None, None)
 
     log.info(f"KPI extraction: found={found} total={len(bd.kpi_dict)}")
     return results

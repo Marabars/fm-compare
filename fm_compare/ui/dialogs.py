@@ -1,5 +1,5 @@
 """
-Modal dialogs: Settings, Business Dictionary Editor, About.
+Modal dialogs: Settings, Business Dictionary Editor, About, KPI Resolution.
 """
 from __future__ import annotations
 import tkinter as tk
@@ -11,6 +11,7 @@ from fm_compare.core.app_settings import AppSettings
 from fm_compare.core.business_dictionary import (
     BusinessDictionary, save_dictionary, export_to_excel, import_from_excel
 )
+from fm_compare.core.models import KPIResolution
 
 
 class SettingsDialog(tk.Toplevel):
@@ -238,6 +239,291 @@ class DictionaryEditorDialog(tk.Toplevel):
         save_dictionary(self._bd)
         messagebox.showinfo("Готово", "Словарь восстановлен по умолчанию.")
         self.destroy()
+
+
+class KPIResolutionDialog(tk.Toplevel):
+    """
+    Phase-1 dialog: shows auto-detected KPI cell addresses and lets the user
+    correct them before the main comparison runs.
+
+    Usage:
+        dlg = KPIResolutionDialog(parent, resolutions)
+        # dialog is modal — blocks until user clicks Confirm or Cancel
+        if dlg.confirmed:
+            run_compare(dlg.resolutions)
+
+    The user can:
+    - Edit addr_v1 / addr_v2 directly in the table
+    - Export the table to Excel, edit offline, then load it back
+    - Confirm (proceed with compare) or Cancel (abort)
+    """
+
+    _COLS = [
+        ("kpi_name",  "KPI",           220),
+        ("kpi_group", "Группа",        110),
+        ("level",     "Ур.",            36),
+        ("label_v1",  "Строка V1",     190),
+        ("addr_v1",   "Ячейка V1",     110),
+        ("label_v2",  "Строка V2",     190),
+        ("addr_v2",   "Ячейка V2",     110),
+        ("source",    "Источник",       70),
+    ]
+
+    def __init__(self, parent, resolutions: list[KPIResolution]):
+        super().__init__(parent)
+        self.title("Проверка адресов KPI — шаг 1 из 2")
+        self.geometry("1080x560")
+        self.resizable(True, True)
+        self.grab_set()
+
+        self._resolutions: list[KPIResolution] = [
+            KPIResolution(**r.__dict__) for r in resolutions
+        ]
+        self.confirmed: bool = False
+
+        self._build_ui()
+        self._populate()
+
+        self.transient(parent)
+        self.wait_window()
+
+    # ── UI construction ────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        info = tk.Label(
+            self,
+            text=(
+                "Ниже показаны строки и ячейки, которые алгоритм нашёл для каждого KPI "
+                "в обоих файлах.\n"
+                "При необходимости исправьте адреса вручную (двойной щелчок) или "
+                "экспортируйте таблицу в Excel, отредактируйте и загрузите обратно.\n"
+                "Нажмите «Подтвердить и сравнить» чтобы запустить сравнение с этими адресами."
+            ),
+            justify="left", anchor="w", wraplength=1040,
+            font=("TkDefaultFont", 9), fg="#444444",
+        )
+        info.pack(fill="x", padx=10, pady=(8, 2))
+
+        # Treeview
+        tree_frame = tk.Frame(self)
+        tree_frame.pack(fill="both", expand=True, padx=10, pady=4)
+
+        col_ids = [c[0] for c in self._COLS]
+        self._tree = ttk.Treeview(
+            tree_frame, columns=col_ids, show="headings", selectmode="browse"
+        )
+        for cid, header, width in self._COLS:
+            self._tree.heading(cid, text=header)
+            self._tree.column(cid, width=width, anchor="w", stretch=False)
+
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self._tree.xview)
+        self._tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        # Color hints
+        self._tree.tag_configure("found", background="#C6EFCE")
+        self._tree.tag_configure("missing", background="#FFEB9C")
+        self._tree.tag_configure("manual", background="#DCE6F1")
+
+        self._tree.bind("<Double-1>", self._on_double_click)
+
+        # Button bar
+        btn_frame = tk.Frame(self)
+        btn_frame.pack(fill="x", padx=10, pady=8)
+
+        tk.Button(btn_frame, text="Экспорт в Excel…",
+                  command=self._export, width=18).pack(side="left")
+        tk.Button(btn_frame, text="Загрузить из Excel…",
+                  command=self._import, width=20).pack(side="left", padx=6)
+
+        tk.Button(btn_frame, text="Отмена", command=self.destroy,
+                  width=12).pack(side="right")
+        tk.Button(btn_frame, text="Подтвердить и сравнить",
+                  command=self._confirm, width=24,
+                  bg="#4472C4", fg="white",
+                  activebackground="#2F5496").pack(side="right", padx=6)
+
+    def _row_values(self, res: KPIResolution) -> list:
+        return [
+            res.kpi_name, res.kpi_group, res.kpi_level,
+            res.label_v1, res.addr_v1,
+            res.label_v2, res.addr_v2,
+            res.source,
+        ]
+
+    def _row_tag(self, res: KPIResolution) -> str:
+        if res.source == "manual":
+            return "manual"
+        if res.addr_v1 or res.addr_v2:
+            return "found"
+        return "missing"
+
+    # ── Populate ───────────────────────────────────────────────────────────
+
+    def _populate(self) -> None:
+        self._tree.delete(*self._tree.get_children())
+        for res in self._resolutions:
+            self._tree.insert(
+                "", "end",
+                values=self._row_values(res),
+                tags=(self._row_tag(res),),
+            )
+
+    # ── Inline edit ────────────────────────────────────────────────────────
+
+    def _on_double_click(self, event: tk.Event) -> None:
+        region = self._tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        col_id = self._tree.identify_column(event.x)
+        row_id = self._tree.identify_row(event.y)
+        if not row_id:
+            return
+
+        # Only allow editing addr_v1 (#5) and addr_v2 (#7)
+        col_num = int(col_id.lstrip("#"))
+        if col_num not in (5, 7):
+            messagebox.showinfo(
+                "Редактирование",
+                "Для редактирования доступны только колонки «Ячейка V1» и «Ячейка V2».\n"
+                "Двойной щелчок по одной из них.",
+            )
+            return
+
+        bbox = self._tree.bbox(row_id, col_id)
+        if not bbox:
+            return
+
+        x, y, w, h = bbox
+        current_val = self._tree.item(row_id, "values")[col_num - 1]
+
+        entry_var = tk.StringVar(value=current_val)
+        entry = tk.Entry(self._tree, textvariable=entry_var, width=20)
+        entry.place(x=x, y=y, width=w, height=h)
+        entry.focus_set()
+        entry.select_range(0, "end")
+
+        field_key = "addr_v1" if col_num == 5 else "addr_v2"
+
+        def _commit(event=None):
+            new_val = entry_var.get().strip()
+            entry.destroy()
+            # Find resolution by row index
+            idx = self._tree.index(row_id)
+            res = self._resolutions[idx]
+            self._apply_addr(res, field_key, new_val)
+            # Refresh row
+            self._tree.item(
+                row_id,
+                values=self._row_values(res),
+                tags=(self._row_tag(res),),
+            )
+
+        def _cancel(event=None):
+            entry.destroy()
+
+        entry.bind("<Return>", _commit)
+        entry.bind("<Tab>", _commit)
+        entry.bind("<Escape>", _cancel)
+        entry.bind("<FocusOut>", _commit)
+
+    def _apply_addr(self, res: KPIResolution, field: str, addr_str: str) -> None:
+        from fm_compare.core.kpi_resolver import parse_cell_address
+        if addr_str:
+            parsed = parse_cell_address(addr_str)
+            if parsed is None:
+                messagebox.showwarning(
+                    "Неверный формат",
+                    f"Адрес «{addr_str}» не распознан.\n"
+                    "Используйте формат: ИмяЛиста!E42",
+                )
+                return
+            if field == "addr_v1":
+                res.addr_v1 = addr_str
+                res.sheet_v1 = parsed.sheet
+                res.row_v1 = parsed.row
+                res.col_v1 = parsed.col
+            else:
+                res.addr_v2 = addr_str
+                res.sheet_v2 = parsed.sheet
+                res.row_v2 = parsed.row
+                res.col_v2 = parsed.col
+        else:
+            if field == "addr_v1":
+                res.addr_v1 = ""
+                res.sheet_v1 = ""
+                res.row_v1 = None
+                res.col_v1 = None
+            else:
+                res.addr_v2 = ""
+                res.sheet_v2 = ""
+                res.row_v2 = None
+                res.col_v2 = None
+        res.source = "manual"
+
+    # ── Export / Import ────────────────────────────────────────────────────
+
+    def _export(self) -> None:
+        from fm_compare.core.kpi_resolver import export_resolutions_to_excel
+        p = filedialog.asksaveasfilename(
+            title="Экспорт таблицы KPI для редактирования",
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+            initialfile="kpi_resolution.xlsx",
+        )
+        if not p:
+            return
+        try:
+            export_resolutions_to_excel(self._resolutions, Path(p))
+            messagebox.showinfo("Готово", f"Таблица сохранена:\n{p}")
+        except Exception as e:
+            messagebox.showerror("Ошибка экспорта", str(e))
+
+    def _import(self) -> None:
+        from fm_compare.core.kpi_resolver import import_resolutions_from_excel
+        p = filedialog.askopenfilename(
+            title="Загрузить исправленную таблицу KPI",
+            filetypes=[("Excel", "*.xlsx")],
+        )
+        if not p:
+            return
+        imported, errors = import_resolutions_from_excel(Path(p))
+        if errors:
+            messagebox.showwarning(
+                "Предупреждения импорта",
+                "\n".join(errors[:15]),
+            )
+        if not imported:
+            messagebox.showerror("Ошибка", "Не удалось загрузить таблицу.")
+            return
+
+        # Merge: match by kpi_name, apply imported addr fields
+        by_name = {r.kpi_name: r for r in imported}
+        for res in self._resolutions:
+            imp = by_name.get(res.kpi_name)
+            if imp is None:
+                continue
+            for fld in ("addr_v1", "sheet_v1", "row_v1", "col_v1",
+                        "addr_v2", "sheet_v2", "row_v2", "col_v2", "source"):
+                setattr(res, fld, getattr(imp, fld))
+
+        self._populate()
+        messagebox.showinfo("Готово", f"Загружено {len(imported)} строк.")
+
+    # ── Confirm ────────────────────────────────────────────────────────────
+
+    def _confirm(self) -> None:
+        self.confirmed = True
+        self.destroy()
+
+    @property
+    def resolutions(self) -> list[KPIResolution]:
+        return self._resolutions
 
 
 class AboutDialog(tk.Toplevel):

@@ -156,6 +156,61 @@ def load_workbook_data(
     return result
 
 
+def load_workbook_quick(
+    path: Path,
+    selected_sheets: list[str] | None = None,
+) -> WorkbookData:
+    """
+    Values-only single-pass load — faster than load_workbook_data.
+    Used for the KPI preview phase (no formula extraction needed).
+    """
+    log.info(f"Quick load workbook ({path.stat().st_size // 1024} KB)")
+
+    wb: Workbook = openpyxl.load_workbook(str(path), data_only=True, read_only=True)
+
+    info = WorkbookInfo()
+    info.sheet_names = wb.sheetnames
+    info.visible_sheets = [s for s in wb.sheetnames if wb[s].sheet_state == "visible"]
+    info.hidden_sheets = [s for s in wb.sheetnames if wb[s].sheet_state != "visible"]
+    info.file_size_mb = path.stat().st_size / (1024 * 1024)
+
+    target_sheets = selected_sheets if selected_sheets else info.sheet_names
+    result = WorkbookData(info=info)
+
+    for sheet_name in target_sheets:
+        if sheet_name not in wb.sheetnames:
+            continue
+        ws: Worksheet = wb[sheet_name]
+        sd = SheetData(name=sheet_name)
+        sd.max_row = ws.max_row or 0
+        sd.max_col = ws.max_column or 0
+
+        if sd.max_row == 0 or sd.max_col == 0:
+            result.sheets[sheet_name] = sd
+            continue
+
+        for r_idx, row in enumerate(ws.iter_rows(), start=1):
+            for c_idx, vc in enumerate(row, start=1):
+                value = _safe_value(vc)
+                if value is None:
+                    continue
+                addr = CellAddress(sheet=sheet_name, row=r_idx, col=c_idx)
+                sd.cells[(r_idx, c_idx)] = CellData(
+                    address=addr,
+                    value=value,
+                    formula=None,
+                    data_type=getattr(vc, "data_type", None) or "n",
+                    comment=None,
+                    is_hidden_row=False,
+                )
+
+        result.sheets[sheet_name] = sd
+
+    wb.close()
+    log.info("Quick workbook load complete")
+    return result
+
+
 def pre_check(path: Path | None, label: str = "") -> PreCheckResult:
     result = PreCheckResult()
     lbl = label or "file"

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from fm_compare.core.models import (
-    CompareResult, CompareMode, Warning, Severity
+    CompareResult, CompareMode, Warning, Severity, CellAddress
 )
 from fm_compare.core.app_settings import AppSettings
 from fm_compare.core.excel_reader import load_workbook_data, get_workbook_info
@@ -38,6 +38,8 @@ def run_compare(
     selected_sheets_v1: list[str],
     selected_sheets_v2: list[str],
     progress: ProgressCallback = _noop,
+    kpi_overrides_v1: dict[str, CellAddress] | None = None,
+    kpi_overrides_v2: dict[str, CellAddress] | None = None,
 ) -> CompareResult:
     """
     Full compare pipeline.  Call from a background thread.
@@ -84,8 +86,8 @@ def run_compare(
 
     # ── 2. KPI extraction ─────────────────────────────────────────────────
     progress(25, "Извлечение KPI…")
-    kpi_v1 = extract_kpis(wb_v1, bd)
-    kpi_v2 = extract_kpis(wb_v2, bd)
+    kpi_v1 = extract_kpis(wb_v1, bd, addr_overrides=kpi_overrides_v1)
+    kpi_v2 = extract_kpis(wb_v2, bd, addr_overrides=kpi_overrides_v2)
     kpi_values = build_kpi_comparison(kpi_v1, kpi_v2, bd)
 
     # ── 3. Value diff ─────────────────────────────────────────────────────

@@ -133,6 +133,28 @@ class Warning:
 
 
 @dataclass
+class KPIResolution:
+    """Per-KPI address resolution — auto-detected or user-confirmed."""
+    kpi_name: str
+    kpi_group: str
+    kpi_level: int
+    search_pattern: str
+    # V1
+    sheet_v1: str = ""
+    row_v1: int | None = None
+    col_v1: int | None = None
+    label_v1: str = ""          # matched row label text
+    addr_v1: str = ""           # Excel notation "Sheet!E42"
+    # V2
+    sheet_v2: str = ""
+    row_v2: int | None = None
+    col_v2: int | None = None
+    label_v2: str = ""
+    addr_v2: str = ""
+    source: str = "auto"        # "auto" | "manual"
+
+
+@dataclass
 class KPIValue:
     kpi_name: str
     kpi_group: str

@@ -11,12 +11,14 @@ from typing import Any
 
 from fm_compare.core.app_settings import AppSettings, load_settings
 from fm_compare.core.business_dictionary import load_dictionary
-from fm_compare.core.excel_reader import get_workbook_info, load_workbook_data
+from fm_compare.core.excel_reader import get_workbook_info, load_workbook_data, load_workbook_quick
 from fm_compare.core.engine import run_compare
+from fm_compare.core.kpi_extractor import resolve_kpis_preview
+from fm_compare.core.kpi_resolver import resolutions_to_overrides
 from fm_compare.core.report_exporter import export_report, suggest_filename
-from fm_compare.core.models import CompareResult, CompareMode
+from fm_compare.core.models import CompareResult, CompareMode, KPIResolution
 from fm_compare.ui.widgets import FilePickerRow, StatusBar, SheetSelectorDialog
-from fm_compare.ui.dialogs import SettingsDialog, DictionaryEditorDialog, AboutDialog
+from fm_compare.ui.dialogs import SettingsDialog, DictionaryEditorDialog, AboutDialog, KPIResolutionDialog
 from fm_compare.ui.results_view import ResultsView
 from fm_compare.security import safe_logger as log
 from fm_compare import APP_NAME, __version__
@@ -309,7 +311,42 @@ class MainWindow(tk.Tk):
         self._settings.mode = self._mode_var.get()
         self._settings.save()
 
-        def worker() -> None:
+        # Phase 1: quick load + KPI resolution preview
+        self._status.update(5, "Фаза 1: определение адресов KPI…")
+
+        def phase1_worker() -> None:
+            try:
+                wb_v1 = load_workbook_quick(self._picker_v1.path, self._selected_v1)
+                wb_v2 = load_workbook_quick(self._picker_v2.path, self._selected_v2)
+                resolutions = resolve_kpis_preview(wb_v1, wb_v2, self._bd)
+                self.after(0, self._open_resolution_dialog, resolutions)
+            except Exception as exc:
+                log.error(f"Phase-1 error: type={type(exc).__name__}")
+                self.after(0, self._on_compare_error, traceback.format_exc())
+
+        threading.Thread(target=phase1_worker, daemon=True).start()
+
+    def _open_resolution_dialog(
+        self, resolutions: list[KPIResolution]
+    ) -> None:
+        """Called on UI thread after Phase 1 completes."""
+        self._status.update(10, "Ожидание подтверждения адресов KPI…")
+        dlg = KPIResolutionDialog(self, resolutions)
+
+        if not dlg.confirmed:
+            # User cancelled — re-enable run button, clear status
+            self._btn_run.config(state="normal")
+            self._status.update(0, "Сравнение отменено")
+            return
+
+        confirmed = dlg.resolutions
+        overrides_v1 = resolutions_to_overrides(confirmed, "v1")
+        overrides_v2 = resolutions_to_overrides(confirmed, "v2")
+
+        # Phase 2: full compare with confirmed addresses
+        self._status.update(15, "Фаза 2: полное сравнение…")
+
+        def phase2_worker() -> None:
             try:
                 result = run_compare(
                     path_v1=self._picker_v1.path,
@@ -319,13 +356,15 @@ class MainWindow(tk.Tk):
                     selected_sheets_v1=self._selected_v1,
                     selected_sheets_v2=self._selected_v2,
                     progress=self._on_progress,
+                    kpi_overrides_v1=overrides_v1,
+                    kpi_overrides_v2=overrides_v2,
                 )
                 self.after(0, self._on_compare_done, result)
             except Exception as exc:
                 log.error(f"Compare error: type={type(exc).__name__}")
                 self.after(0, self._on_compare_error, traceback.format_exc())
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=phase2_worker, daemon=True).start()
 
     def _on_progress(self, pct: int, message: str) -> None:
         self.after(0, self._status.update, pct, message)
