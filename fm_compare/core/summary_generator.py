@@ -17,19 +17,23 @@ def _fmt_num(v: Any, unit: str = "") -> str:
     if v is None:
         return "н/д"
     if isinstance(v, float):
+        if unit:
+            return f"{v:,.2f} {unit}".strip()
         if abs(v) >= 1_000_000_000:
-            return f"{v / 1_000_000_000:.2f} млрд {unit}".strip()
+            return f"{v / 1_000_000_000:.2f} млрд"
         if abs(v) >= 1_000_000:
-            return f"{v / 1_000_000:.1f} млн {unit}".strip()
+            return f"{v / 1_000_000:.1f} млн"
         if abs(v) >= 1_000:
-            return f"{v / 1_000:.1f} тыс {unit}".strip()
-        return f"{v:.2f} {unit}".strip()
+            return f"{v / 1_000:.1f} тыс"
+        return f"{v:.2f}"
     if isinstance(v, int):
+        if unit:
+            return f"{v:,} {unit}".strip()
         if abs(v) >= 1_000_000_000:
-            return f"{v / 1_000_000_000:.2f} млрд {unit}".strip()
+            return f"{v / 1_000_000_000:.2f} млрд"
         if abs(v) >= 1_000_000:
-            return f"{v / 1_000_000:.1f} млн {unit}".strip()
-        return f"{v:,} {unit}".strip()
+            return f"{v / 1_000_000:.1f} млн"
+        return f"{v:,}"
     return str(v)
 
 

@@ -120,9 +120,10 @@ def export_report(
     wb.active = wb["Executive Summary"]
 
     # Write to temp, then atomically replace final path.
-    # Path.replace() is safer than rename(); shutil.move handles cross-device (UNC) moves.
+    # Use with_name() to avoid Path.with_suffix() rejecting multi-dot suffixes on Python 3.12+.
+    # shutil.move handles cross-device (UNC) moves.
     import shutil
-    tmp = output_path.with_suffix(".tmp.xlsx")
+    tmp = output_path.with_name(output_path.stem + "_tmp.xlsx")
     wb.save(str(tmp))
     try:
         tmp.replace(output_path)

@@ -426,7 +426,9 @@ class MainWindow(tk.Tk):
                 out = export_report(self._result, self._bd, Path(path), mode)
                 self.after(0, self._on_export_done, str(out))
             except Exception as exc:
-                self.after(0, self._on_export_error, str(exc))
+                tb = traceback.format_exc()
+                log.error(f"Export error: {type(exc).__name__}: {exc}\n{tb}")
+                self.after(0, self._on_export_error, f"{type(exc).__name__}: {exc}\n\n{tb[:1000]}")
 
         threading.Thread(target=worker, daemon=True).start()
 
