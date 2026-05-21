@@ -532,6 +532,125 @@ class KPIResolutionDialog(tk.Toplevel):
         return self._resolutions
 
 
+class SheetPairingDialog(tk.Toplevel):
+    """
+    Single-file mode dialog: lets the user pair V1 sheets with V2 sheets
+    within the same workbook (e.g. BS_2025 ↔ BS_2026).
+
+    Usage:
+        dlg = SheetPairingDialog(parent, sheet_names)
+        if dlg.pairs:
+            run_compare with mapping built from dlg.pairs
+    """
+
+    def __init__(self, parent, sheet_names: list[str]):
+        super().__init__(parent)
+        self.title("Сопоставление листов: V1 ↔ V2")
+        self.geometry("620x420")
+        self.resizable(True, True)
+        self.grab_set()
+
+        self._sheet_names = list(sheet_names)
+        self.pairs: list[tuple[str, str]] = []
+
+        self._build_ui()
+
+        self.transient(parent)
+        self.wait_window()
+
+    def _build_ui(self) -> None:
+        info = tk.Label(
+            self,
+            text=(
+                "Выберите пары листов одного файла для сравнения.\n"
+                "Содержимое листа V2 будет сопоставлено со строками листа V1."
+            ),
+            justify="left", anchor="w",
+            font=("TkDefaultFont", 9), fg="#444444",
+        )
+        info.pack(fill="x", padx=10, pady=(10, 4))
+
+        tree_frame = tk.Frame(self)
+        tree_frame.pack(fill="both", expand=True, padx=10, pady=4)
+        self._tree = ttk.Treeview(
+            tree_frame, columns=("v1", "v2"), show="headings", selectmode="browse"
+        )
+        self._tree.heading("v1", text="Лист V1")
+        self._tree.heading("v2", text="Лист V2")
+        self._tree.column("v1", width=280, anchor="w")
+        self._tree.column("v2", width=280, anchor="w")
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
+        self._tree.configure(yscrollcommand=vsb.set)
+        self._tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        add_frame = tk.LabelFrame(self, text="Добавить пару", padx=6, pady=4)
+        add_frame.pack(fill="x", padx=10, pady=4)
+
+        tk.Label(add_frame, text="V1:").grid(row=0, column=0, sticky="w", padx=2)
+        self._cb_v1 = ttk.Combobox(add_frame, values=self._sheet_names, state="readonly", width=28)
+        self._cb_v1.grid(row=0, column=1, padx=4, pady=2)
+
+        tk.Label(add_frame, text="V2:").grid(row=0, column=2, sticky="w", padx=2)
+        self._cb_v2 = ttk.Combobox(add_frame, values=self._sheet_names, state="readonly", width=28)
+        self._cb_v2.grid(row=0, column=3, padx=4, pady=2)
+
+        tk.Button(add_frame, text="Добавить", command=self._add_pair).grid(
+            row=0, column=4, padx=6
+        )
+        tk.Button(add_frame, text="Удалить выбранную", command=self._remove_pair).grid(
+            row=1, column=0, columnspan=2, sticky="w", padx=2, pady=(4, 0)
+        )
+
+        btn_frame = tk.Frame(self)
+        btn_frame.pack(fill="x", padx=10, pady=8)
+        tk.Button(btn_frame, text="OK", command=self._on_ok, width=12).pack(side="right")
+        tk.Button(btn_frame, text="Отмена", command=self._on_cancel, width=12).pack(
+            side="right", padx=4
+        )
+
+    def _add_pair(self) -> None:
+        v1 = self._cb_v1.get().strip()
+        v2 = self._cb_v2.get().strip()
+        if not v1 or not v2:
+            messagebox.showwarning("Неполная пара", "Выберите оба листа.", parent=self)
+            return
+        if v1 == v2:
+            messagebox.showwarning(
+                "Совпадение", "V1 и V2 не могут быть одним и тем же листом.", parent=self
+            )
+            return
+        existing_v1 = {self._tree.set(iid, "v1") for iid in self._tree.get_children()}
+        if v1 in existing_v1:
+            messagebox.showwarning(
+                "Дубликат", f"Лист «{v1}» уже используется как V1.", parent=self
+            )
+            return
+        self._tree.insert("", "end", values=(v1, v2))
+
+    def _remove_pair(self) -> None:
+        sel = self._tree.selection()
+        for iid in sel:
+            self._tree.delete(iid)
+
+    def _on_ok(self) -> None:
+        pairs = [
+            (self._tree.set(iid, "v1"), self._tree.set(iid, "v2"))
+            for iid in self._tree.get_children()
+        ]
+        if not pairs:
+            messagebox.showwarning(
+                "Нет пар", "Добавьте хотя бы одну пару листов.", parent=self
+            )
+            return
+        self.pairs = pairs
+        self.destroy()
+
+    def _on_cancel(self) -> None:
+        self.pairs = []
+        self.destroy()
+
+
 class AboutDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)

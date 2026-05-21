@@ -211,6 +211,26 @@ def load_workbook_quick(
     return result
 
 
+def rename_sheets(wb_data: WorkbookData, mapping: dict[str, str]) -> None:
+    """In-place rename of loaded sheets per mapping (old_name -> new_name).
+    Updates SheetData.name and CellAddress.sheet of every CellData.
+    Used in single-file compare mode so V2 sheets adopt their paired V1 names.
+    """
+    if not mapping:
+        return
+    moved: list[SheetData] = []
+    for old, new in mapping.items():
+        if old not in wb_data.sheets:
+            continue
+        sd = wb_data.sheets.pop(old)
+        sd.name = new
+        for cd in sd.cells.values():
+            cd.address.sheet = new
+        moved.append(sd)
+    for sd in moved:
+        wb_data.sheets[sd.name] = sd
+
+
 def pre_check(path: Path | None, label: str = "") -> PreCheckResult:
     result = PreCheckResult()
     lbl = label or "file"

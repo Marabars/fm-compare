@@ -12,7 +12,7 @@ from fm_compare.core.models import (
     CompareResult, CompareMode, Warning, Severity, CellAddress
 )
 from fm_compare.core.app_settings import AppSettings
-from fm_compare.core.excel_reader import load_workbook_data, get_workbook_info
+from fm_compare.core.excel_reader import load_workbook_data, get_workbook_info, rename_sheets
 from fm_compare.core.business_dictionary import BusinessDictionary
 from fm_compare.core.kpi_extractor import extract_kpis, build_kpi_comparison
 from fm_compare.core.value_differ import build_diff
@@ -41,6 +41,7 @@ def run_compare(
     kpi_overrides_v1: dict[str, CellAddress] | None = None,
     kpi_overrides_v2: dict[str, CellAddress] | None = None,
     kpi_unit_overrides: dict[str, str] | None = None,
+    sheet_rename_v2: dict[str, str] | None = None,
 ) -> CompareResult:
     """
     Full compare pipeline.  Call from a background thread.
@@ -56,6 +57,8 @@ def run_compare(
 
     progress(15, "Загрузка V2…")
     wb_v2 = load_workbook_data(path_v2, selected_sheets_v2)
+    if sheet_rename_v2:
+        rename_sheets(wb_v2, sheet_rename_v2)
 
     info_v1 = get_workbook_info(path_v1)
     info_v2 = get_workbook_info(path_v2)

@@ -11,14 +11,19 @@ from typing import Any
 
 from fm_compare.core.app_settings import AppSettings, load_settings
 from fm_compare.core.business_dictionary import load_dictionary
-from fm_compare.core.excel_reader import get_workbook_info, load_workbook_data, load_workbook_quick
+from fm_compare.core.excel_reader import (
+    get_workbook_info, load_workbook_data, load_workbook_quick, rename_sheets
+)
 from fm_compare.core.engine import run_compare
 from fm_compare.core.kpi_extractor import resolve_kpis_preview
 from fm_compare.core.kpi_resolver import resolutions_to_overrides
 from fm_compare.core.report_exporter import export_report, suggest_filename
 from fm_compare.core.models import CompareResult, CompareMode, KPIResolution
 from fm_compare.ui.widgets import FilePickerRow, StatusBar, SheetSelectorDialog
-from fm_compare.ui.dialogs import SettingsDialog, DictionaryEditorDialog, AboutDialog, KPIResolutionDialog
+from fm_compare.ui.dialogs import (
+    SettingsDialog, DictionaryEditorDialog, AboutDialog,
+    KPIResolutionDialog, SheetPairingDialog,
+)
 from fm_compare.ui.results_view import ResultsView
 from fm_compare.security import safe_logger as log
 from fm_compare import APP_NAME, __version__
@@ -38,6 +43,7 @@ class MainWindow(tk.Tk):
         self._sheets_v2: list[str] = []
         self._selected_v1: list[str] = []
         self._selected_v2: list[str] = []
+        self._v2_rename_map: dict[str, str] = {}
 
         self._restore_geometry()
         self._build_ui()
@@ -109,6 +115,14 @@ class MainWindow(tk.Tk):
             fp_frame, label="V2:", on_change=self._on_v2_changed
         )
         self._picker_v2.pack(fill="x", pady=2)
+
+        self._same_file_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            fp_frame,
+            text="Сравнить листы внутри одного файла (V2 = V1)",
+            variable=self._same_file_var,
+            command=self._on_same_file_toggled,
+        ).pack(anchor="w", pady=(2, 0))
 
         sheet_row = tk.Frame(fp_frame)
         sheet_row.pack(fill="x", pady=2)
@@ -236,10 +250,44 @@ class MainWindow(tk.Tk):
     def _on_mode_change(self) -> None:
         self._settings.mode = self._mode_var.get()
 
+    def _on_same_file_toggled(self) -> None:
+        same = self._same_file_var.get()
+        if same:
+            self._picker_v2.set_path(None)
+            self._sheets_v2 = []
+            self._selected_v2 = []
+            self._v2_rename_map = {}
+            for child in self._picker_v2.winfo_children():
+                try:
+                    child.configure(state="disabled")
+                except tk.TclError:
+                    pass
+            self._btn_sheets_v2.config(state="disabled")
+        else:
+            for child in self._picker_v2.winfo_children():
+                try:
+                    if isinstance(child, tk.Entry):
+                        child.configure(state="readonly")
+                    else:
+                        child.configure(state="normal")
+                except tk.TclError:
+                    pass
+            self._v2_rename_map = {}
+        self._update_sheets_label()
+        self._update_run_button()
+
     def _update_sheets_label(self) -> None:
         v1_cnt = len(self._selected_v1)
         v2_cnt = len(self._selected_v2)
-        if v1_cnt or v2_cnt:
+        if self._same_file_var.get() if hasattr(self, "_same_file_var") else False:
+            if v1_cnt:
+                self._sheets_label.config(
+                    text=f"V1: {v1_cnt} лист(ов)   V2: задаётся в диалоге парования",
+                    fg="#333333",
+                )
+            else:
+                self._sheets_label.config(text="—", fg="gray")
+        elif v1_cnt or v2_cnt:
             self._sheets_label.config(
                 text=f"V1: {v1_cnt} лист(ов)   V2: {v2_cnt} лист(ов)", fg="#333333"
             )
@@ -247,12 +295,18 @@ class MainWindow(tk.Tk):
             self._sheets_label.config(text="—", fg="gray")
 
     def _update_run_button(self) -> None:
-        ready = (
-            self._picker_v1.path is not None
-            and self._picker_v2.path is not None
-            and bool(self._selected_v1)
-            and bool(self._selected_v2)
-        )
+        if self._same_file_var.get() if hasattr(self, "_same_file_var") else False:
+            ready = (
+                self._picker_v1.path is not None
+                and bool(self._selected_v1)
+            )
+        else:
+            ready = (
+                self._picker_v1.path is not None
+                and self._picker_v2.path is not None
+                and bool(self._selected_v1)
+                and bool(self._selected_v2)
+            )
         self._btn_run.config(state="normal" if ready else "disabled")
 
     def _select_sheets_v1(self) -> None:
@@ -299,9 +353,24 @@ class MainWindow(tk.Tk):
     # ── compare pipeline ──────────────────────────────────────────────────
 
     def _run_compare(self) -> None:
-        if not self._picker_v1.path or not self._picker_v2.path:
-            messagebox.showwarning("Нет файлов", "Выберите оба файла V1 и V2.")
-            return
+        same_file = self._same_file_var.get()
+        if same_file:
+            if not self._picker_v1.path:
+                messagebox.showwarning("Нет файла", "Выберите файл V1.")
+                return
+            dlg = SheetPairingDialog(self, self._sheets_v1)
+            if not dlg.pairs:
+                return
+            self._selected_v1 = [v1 for v1, _ in dlg.pairs]
+            self._selected_v2 = [v2 for _, v2 in dlg.pairs]
+            self._v2_rename_map = {v2: v1 for v1, v2 in dlg.pairs}
+            path_v2 = self._picker_v1.path
+        else:
+            if not self._picker_v1.path or not self._picker_v2.path:
+                messagebox.showwarning("Нет файлов", "Выберите оба файла V1 и V2.")
+                return
+            self._v2_rename_map = {}
+            path_v2 = self._picker_v2.path
 
         self._btn_run.config(state="disabled")
         self._btn_export.config(state="disabled")
@@ -313,11 +382,14 @@ class MainWindow(tk.Tk):
 
         # Phase 1: quick load + KPI resolution preview
         self._status.update(5, "Фаза 1: определение адресов KPI…")
+        rename_map = dict(self._v2_rename_map)
 
         def phase1_worker() -> None:
             try:
                 wb_v1 = load_workbook_quick(self._picker_v1.path, self._selected_v1)
-                wb_v2 = load_workbook_quick(self._picker_v2.path, self._selected_v2)
+                wb_v2 = load_workbook_quick(path_v2, self._selected_v2)
+                if rename_map:
+                    rename_sheets(wb_v2, rename_map)
                 resolutions = resolve_kpis_preview(wb_v1, wb_v2, self._bd)
                 self.after(0, self._open_resolution_dialog, resolutions)
             except Exception as exc:
@@ -351,12 +423,14 @@ class MainWindow(tk.Tk):
 
         # Phase 2: full compare with confirmed addresses and units
         self._status.update(15, "Фаза 2: полное сравнение…")
+        rename_map = dict(self._v2_rename_map)
+        path_v2 = self._picker_v1.path if rename_map else self._picker_v2.path
 
         def phase2_worker() -> None:
             try:
                 result = run_compare(
                     path_v1=self._picker_v1.path,
-                    path_v2=self._picker_v2.path,
+                    path_v2=path_v2,
                     bd=self._bd,
                     settings=self._settings,
                     selected_sheets_v1=self._selected_v1,
@@ -365,6 +439,7 @@ class MainWindow(tk.Tk):
                     kpi_overrides_v1=overrides_v1,
                     kpi_overrides_v2=overrides_v2,
                     kpi_unit_overrides=unit_overrides,
+                    sheet_rename_v2=rename_map or None,
                 )
                 self.after(0, self._on_compare_done, result)
             except Exception as exc:
