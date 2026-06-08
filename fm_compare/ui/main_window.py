@@ -2,6 +2,7 @@
 Main application window.
 """
 from __future__ import annotations
+import queue
 import threading
 import traceback
 import tkinter as tk
@@ -45,9 +46,38 @@ class MainWindow(tk.Tk):
         self._selected_v2: list[str] = []
         self._v2_rename_map: dict[str, str] = {}
 
+        # Thread-safe UI dispatch: worker threads must NOT touch Tk directly.
+        # tkinter.after() is not thread-safe and, when called off the main
+        # thread, can raise "main thread is not in main loop" — which silently
+        # kills the worker before it reports back, leaving buttons stuck
+        # disabled and errors invisible. Workers enqueue callbacks here and the
+        # main thread drains the queue via a periodic, main-thread-scheduled poll.
+        self._ui_queue: queue.Queue = queue.Queue()
+
         self._restore_geometry()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._pump_ui_queue()
+
+    # ── thread-safe UI dispatch ─────────────────────────────────────────────
+
+    def _post(self, fn, *args) -> None:
+        """Schedule ``fn(*args)`` to run on the main thread. Safe from any thread."""
+        self._ui_queue.put((fn, args))
+
+    def _pump_ui_queue(self) -> None:
+        """Drain queued UI callbacks on the main thread, then reschedule."""
+        try:
+            while True:
+                fn, args = self._ui_queue.get_nowait()
+                try:
+                    fn(*args)
+                except Exception:
+                    log.error(f"UI callback failed:\n{traceback.format_exc()}")
+        except queue.Empty:
+            pass
+        # after() here is safe: scheduled from the main thread.
+        self.after(50, self._pump_ui_queue)
 
     # ── geometry ──────────────────────────────────────────────────────────
 
@@ -391,10 +421,10 @@ class MainWindow(tk.Tk):
                 if rename_map:
                     rename_sheets(wb_v2, rename_map)
                 resolutions = resolve_kpis_preview(wb_v1, wb_v2, self._bd)
-                self.after(0, self._open_resolution_dialog, resolutions)
+                self._post(self._open_resolution_dialog, resolutions)
             except Exception as exc:
                 log.error(f"Phase-1 error: type={type(exc).__name__}")
-                self.after(0, self._on_compare_error, traceback.format_exc())
+                self._post(self._on_compare_error, traceback.format_exc())
 
         threading.Thread(target=phase1_worker, daemon=True).start()
 
@@ -441,15 +471,15 @@ class MainWindow(tk.Tk):
                     kpi_unit_overrides=unit_overrides,
                     sheet_rename_v2=rename_map or None,
                 )
-                self.after(0, self._on_compare_done, result)
+                self._post(self._on_compare_done, result)
             except Exception as exc:
                 log.error(f"Compare error: type={type(exc).__name__}")
-                self.after(0, self._on_compare_error, traceback.format_exc())
+                self._post(self._on_compare_error, traceback.format_exc())
 
         threading.Thread(target=phase2_worker, daemon=True).start()
 
     def _on_progress(self, pct: int, message: str) -> None:
-        self.after(0, self._status.update, pct, message)
+        self._post(self._status.update, pct, message)
 
     def _on_compare_done(self, result: CompareResult) -> None:
         self._result = result
@@ -499,11 +529,11 @@ class MainWindow(tk.Tk):
         def worker() -> None:
             try:
                 out = export_report(self._result, self._bd, Path(path), mode)
-                self.after(0, self._on_export_done, str(out))
+                self._post(self._on_export_done, str(out))
             except Exception as exc:
                 tb = traceback.format_exc()
                 log.error(f"Export error: {type(exc).__name__}: {exc}\n{tb}")
-                self.after(0, self._on_export_error, f"{type(exc).__name__}: {exc}\n\n{tb[:1000]}")
+                self._post(self._on_export_error, f"{type(exc).__name__}: {exc}\n\n{tb[:1000]}")
 
         threading.Thread(target=worker, daemon=True).start()
 

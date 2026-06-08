@@ -16,6 +16,7 @@ from openpyxl.styles import (
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.formatting.rule import ColorScaleRule, DataBarRule, Rule
 from openpyxl.utils import get_column_letter
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 from fm_compare.core.models import (
     CompareResult, CompareMode, KPIValue, DiffRow, FormulaChange,
@@ -51,8 +52,27 @@ THIN_BORDER = Border(
 )
 
 
+def _san(value: Any) -> Any:
+    """Strip XML-illegal control characters from strings before writing.
+
+    openpyxl raises IllegalCharacterError on control chars (\\x00-\\x1f, except
+    tab/newline/CR), which aborts the entire wb.save() and produces a report
+    file that never appears. Source financial models routinely contain such
+    characters in pasted text, so every string written to a cell is sanitized
+    here. Non-string values pass through untouched.
+    """
+    if isinstance(value, str):
+        return ILLEGAL_CHARACTERS_RE.sub("", value)
+    return value
+
+
+def _set(ws, row: int, col: int, value: Any):
+    """Write a sanitized value to a cell and return the cell."""
+    return ws.cell(row=row, column=col, value=_san(value))
+
+
 def _h(ws, row: int, col: int, value: Any, subheader: bool = False) -> None:
-    c = ws.cell(row=row, column=col, value=value)
+    c = ws.cell(row=row, column=col, value=_san(value))
     c.font = FONT_HEADER if not subheader else Font(bold=True, size=10)
     c.fill = FILL_HEADER if not subheader else FILL_SUBHEADER
     c.alignment = ALIGN_CENTER
@@ -61,7 +81,7 @@ def _h(ws, row: int, col: int, value: Any, subheader: bool = False) -> None:
 
 def _cell(ws, row: int, col: int, value: Any, fill: PatternFill | None = None,
           bold: bool = False, align: str = "left", number_format: str = "General") -> None:
-    c = ws.cell(row=row, column=col, value=value)
+    c = ws.cell(row=row, column=col, value=_san(value))
     c.font = Font(bold=bold, size=10)
     if fill:
         c.fill = fill
@@ -159,7 +179,7 @@ def _add_executive_summary(wb: Workbook, result: CompareResult, mode: CompareMod
         # Block title
         ws.merge_cells(f"A{row}:H{row}")
         title_fill = FILL_YELLOW if "warning" in btype or "sign" in btype else FILL_SUBHEADER
-        c = ws.cell(row=row, column=1, value=block.get("title", ""))
+        c = ws.cell(row=row, column=1, value=_san(block.get("title", "")))
         c.font = Font(bold=True, size=11)
         c.fill = title_fill
         c.alignment = ALIGN_LEFT
@@ -168,7 +188,7 @@ def _add_executive_summary(wb: Workbook, result: CompareResult, mode: CompareMod
         # Block text
         if block.get("text"):
             ws.merge_cells(f"A{row}:H{row}")
-            c = ws.cell(row=row, column=1, value=block["text"])
+            c = ws.cell(row=row, column=1, value=_san(block["text"]))
             c.font = FONT_NORMAL
             c.alignment = ALIGN_LEFT
             ws.row_dimensions[row].height = 30
@@ -177,7 +197,7 @@ def _add_executive_summary(wb: Workbook, result: CompareResult, mode: CompareMod
         # Items
         for item in block.get("items", []):
             ws.merge_cells(f"A{row}:H{row}")
-            c = ws.cell(row=row, column=1, value=str(item))
+            c = ws.cell(row=row, column=1, value=_san(str(item)))
             c.font = FONT_NORMAL
             c.alignment = ALIGN_LEFT
             if str(item).startswith("▼"):
@@ -494,11 +514,11 @@ def _add_dictionary_export(wb: Workbook, bd: BusinessDictionary) -> None:
         _h(ws, row, ci, h)
     row += 1
     for k in bd.kpi_dict:
-        ws.cell(row=row, column=1, value=k.name)
-        ws.cell(row=row, column=2, value=k.group)
-        ws.cell(row=row, column=3, value=k.level)
-        ws.cell(row=row, column=4, value=k.unit)
-        ws.cell(row=row, column=5, value=k.better_direction)
+        _set(ws, row, 1, k.name)
+        _set(ws, row, 2, k.group)
+        _set(ws, row, 3, k.level)
+        _set(ws, row, 4, k.unit)
+        _set(ws, row, 5, k.better_direction)
         row += 1
 
     row += 2
@@ -508,10 +528,10 @@ def _add_dictionary_export(wb: Workbook, bd: BusinessDictionary) -> None:
         _h(ws, row, ci, h)
     row += 1
     for s in bd.sheet_dict:
-        ws.cell(row=row, column=1, value=s.name_pattern)
-        ws.cell(row=row, column=2, value=s.group)
-        ws.cell(row=row, column=3, value="Да" if s.key_sheet else "Нет")
-        ws.cell(row=row, column=4, value="Да" if s.analyze_by_default else "Нет")
+        _set(ws, row, 1, s.name_pattern)
+        _set(ws, row, 2, s.group)
+        _set(ws, row, 3, "Да" if s.key_sheet else "Нет")
+        _set(ws, row, 4, "Да" if s.analyze_by_default else "Нет")
         row += 1
 
     _auto_width(ws)
