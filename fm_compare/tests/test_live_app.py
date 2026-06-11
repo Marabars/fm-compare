@@ -1,10 +1,10 @@
 """
 Live integration tests against the deployed FM Compare instance.
 
-Run against workai-05.mr-group.ru:8000 (or any other BASE_URL):
+Run against a deployed FM Compare instance:
 
-    python fm_compare/tests/test_live_app.py
-    FM_COMPARE_URL=http://localhost:8000 python fm_compare/tests/test_live_app.py
+    FM_COMPARE_URL=http://<host>:8000 FM_COMPARE_PASSWORD=<pwd> python fm_compare/tests/test_live_app.py
+    # Defaults to localhost:8000 with no password (open gate, dev mode)
 
 The script uploads synthetic FM Excel files (no real data), walks the
 complete API workflow, and prints a result table.  No pytest required.
@@ -29,8 +29,8 @@ except ImportError as e:
     print("Install: pip install requests openpyxl")
     sys.exit(1)
 
-BASE_URL = os.environ.get("FM_COMPARE_URL", "http://workai-05.mr-group.ru:8000")
-PASSWORD = os.environ.get("FM_COMPARE_PASSWORD", "12345")
+BASE_URL = os.environ.get("FM_COMPARE_URL", "http://localhost:8000")
+PASSWORD = os.environ.get("FM_COMPARE_PASSWORD", "")
 TIMEOUT = int(os.environ.get("FM_COMPARE_TIMEOUT", "60"))
 
 _PASS = "✅ PASS"
