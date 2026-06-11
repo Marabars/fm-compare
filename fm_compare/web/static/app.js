@@ -114,7 +114,9 @@ function renderKpiTable(rows) {
   tb.innerHTML = "";
   rows.forEach((r, i) => {
     const tr = document.createElement("tr");
-    tr.className = (r.addr_v1 && r.addr_v2) ? "found" : "missing";
+    tr.className = (r.addr_v1 && r.addr_v2)
+      ? (r.source === "llm" ? "found ai-found" : "found")
+      : "missing";
     const v3Cell = state.hasV3
       ? `<td class="v3-col"><input type="text" data-i="${i}" data-f="addr_v3" value="${escapeHtml(r.addr_v3 || '')}" style="width:110px"></td>`
       : `<td class="v3-col"></td>`;
@@ -508,6 +510,38 @@ function sensBuildKpiAddrs() {
 
 $("sensAddInputBtn").addEventListener("click", sensAddInputRow);
 
+$("sensSuggestBtn").addEventListener("click", async () => {
+  const btn = $("sensSuggestBtn");
+  btn.disabled = true;
+  btn.textContent = "Ищем…";
+  try {
+    const data = await apiJson(`/api/${state.jobId}/suggest-sensitivity-inputs`);
+    const candidates = data.candidates || [];
+    if (!candidates.length) {
+      $("sensMsgArea").textContent = "Параметры-кандидаты не найдены в файле V1.";
+      return;
+    }
+    const tbody = $("sensInputsBody");
+    candidates.forEach(c => {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td><input type="text" value="${escapeHtml(c.name)}" style="width:150px"></td>` +
+        `<td><input type="text" value="${escapeHtml(c.addr)}" style="width:110px"></td>` +
+        `<td><input type="text" value="${escapeHtml(c.unit)}" style="width:80px"></td>` +
+        `<td><input type="number" value="${escapeHtml(String(c.base_value))}" style="width:100px"></td>` +
+        `<td><input type="text" placeholder="знач1,знач2,…" style="width:260px"></td>` +
+        `<td><button class="sens-del-btn" onclick="this.closest('tr').remove()">✕</button></td>`;
+      tbody.appendChild(tr);
+    });
+    $("sensMsgArea").textContent = `Добавлено ${candidates.length} кандидатов. Укажите значения для перебора.`;
+  } catch (e) {
+    $("sensMsgArea").textContent = "Ошибка поиска: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✦ Найти авто";
+  }
+});
+
 $("sensRunBtn").addEventListener("click", async () => {
   clearError();
   const inputs = sensBuildInputs();
@@ -628,6 +662,9 @@ async function sendChat() {
       bubble.classList.remove("streaming");
       if (!streamError && full) {
         _chatHistory.push({ role: "assistant", content: full });
+      } else if (!streamError && !full) {
+        bubble.textContent = "Агент не вернул ответ. Попробуйте ещё раз.";
+        bubble.classList.add("chat-unavailable");
       }
     }
   } catch (e) {

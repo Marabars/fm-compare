@@ -6,6 +6,7 @@ Reproduces the desktop two-phase workflow:
 """
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -26,7 +27,7 @@ from fm_compare.security import safe_logger as log
 from fm_compare.web import auth, jobs, storage
 from fm_compare.web.dashboard import build_dashboard, auto_resolutions
 from fm_compare.web.serialization import resolution_to_json, summary_payload, correction_to_json
-from fm_compare.core.agent.kpi_validator import validate_resolutions
+from fm_compare.core.agent.kpi_validator import validate_resolutions, suggest_missing_kpis
 from fm_compare.core.llm.summary_llm import enhance_summary
 from fm_compare.core.llm.chat import stream_chat_turn
 
@@ -121,6 +122,8 @@ async def resolve_preview(job_id: str, request: Request):
     resolutions = resolve_kpis_preview(wb_v1, wb_v2, bd, wb_v3=wb_v3)
     # LLM validation with graceful fallback (no-op if gateway unavailable)
     resolutions, corrections = validate_resolutions(resolutions, wb_v1, wb_v2)
+    # LLM-powered search for still-missing KPIs (addr_v1/addr_v2 empty)
+    resolutions = suggest_missing_kpis(resolutions, wb_v1, wb_v2)
     job.resolutions = resolutions
     return {
         "resolutions": [resolution_to_json(r) for r in resolutions],
@@ -500,6 +503,74 @@ async def get_sensitivity(job_id: str):
         "base": _ser_scenario(res.base_scenario),
         "scenarios": [_ser_scenario(s) for s in res.scenarios],
     }
+
+
+@router.get("/api/{job_id}/suggest-sensitivity-inputs")
+async def suggest_sensitivity_inputs(job_id: str):
+    """
+    Scan V1 workbook for likely input-parameter cells using label heuristics.
+    Returns up to 20 candidates: [{name, addr, unit, base_value}].
+    """
+    from openpyxl.utils import get_column_letter
+    from fm_compare.core.utils import is_numeric
+
+    _INPUT_KEYWORDS = re.compile(
+        r"цен[аыу]|ставк[аи]|тариф|объём|объем|площадь|доля|норм[аы]|темп"
+        r"|коэфф|количество|стоимость|расход|выход|% |процент|бюджет|план|прогноз"
+        r"|ключев|базов|входн",
+        re.IGNORECASE | re.UNICODE,
+    )
+
+    job = jobs.get_job(job_id)
+    if job is None or not job.path_v1:
+        raise HTTPException(status_code=404, detail="Задача не найдена или файл V1 не загружен")
+    if not job.sheets_v1:
+        raise HTTPException(status_code=422, detail="Сначала выберите листы (resolve-preview)")
+
+    wb = load_workbook_quick(job.path_v1, job.sheets_v1)
+    label_col = 2
+    candidates: list[dict] = []
+
+    for sheet_name, sd in wb.sheets.items():
+        for row in range(1, min(sd.max_row + 1, 500)):
+            label_cd = sd.cells.get((row, label_col))
+            if not label_cd or not label_cd.value:
+                continue
+            label = str(label_cd.value).strip()
+            if not label or not _INPUT_KEYWORDS.search(label):
+                continue
+            # Find a non-empty numeric value in this row
+            val = None
+            col = None
+            for c_idx in range(label_col + 1, min(sd.max_col + 1, 50)):
+                cd = sd.cells.get((row, c_idx))
+                if cd and is_numeric(cd.value):
+                    val = cd.value
+                    col = c_idx
+                    break
+            if val is None or col is None:
+                continue
+            # Detect unit from nearby cells
+            unit = ""
+            for c_idx in range(1, label_col + 2):
+                ucd = sd.cells.get((row, c_idx))
+                if ucd and ucd.value:
+                    s = str(ucd.value).strip()
+                    if re.search(r"руб|%|кв\.?м|м2|тыс|млн|шт", s, re.IGNORECASE):
+                        unit = s
+                        break
+            candidates.append({
+                "name": label[:80],
+                "addr": f"{sheet_name}!{get_column_letter(col)}{row}",
+                "unit": unit,
+                "base_value": float(val),
+            })
+            if len(candidates) >= 20:
+                break
+        if len(candidates) >= 20:
+            break
+
+    return {"candidates": candidates}
 
 
 @router.get("/api/{job_id}/report.xlsx")

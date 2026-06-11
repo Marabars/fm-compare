@@ -279,3 +279,184 @@ def validate_resolutions(
             corrections.append(correction)
 
     return corrected, corrections
+
+
+# ------------------------------------------------------------------ #
+# Missing-KPI finder (LLM-powered)
+# ------------------------------------------------------------------ #
+
+_SUGGEST_MISSING_SYSTEM = (
+    "Ты — финансовый аналитик, специализирующийся на девелоперских Excel-моделях. "
+    "Тебе дан список строк из листов финансовой модели в формате: "
+    "«ЛистИмя!НомерСтроки | Метка строки». "
+    "Для каждого KPI из списка найди наиболее подходящую строку. "
+    "Если строку невозможно определить — используй null. "
+    "Ответь ТОЛЬКО JSON-массивом без текста вне JSON: "
+    '[{"kpi":"...","v1_key":"РЕЗЮМЕ!42","v1_reason":"...","v2_key":"РЕЗЮМЕ!38","v2_reason":"..."},...]'
+)
+
+
+def _collect_row_labels(wb: WorkbookData, label_col: int, max_rows: int = 200) -> str:
+    """Return formatted row-label index for an LLM prompt (no cell values)."""
+    lines: list[str] = []
+    for sheet_name, sd in wb.sheets.items():
+        for row in range(1, min(sd.max_row + 1, max_rows + 1)):
+            cd = sd.cells.get((row, label_col))
+            if cd and cd.value:
+                label = str(cd.value).strip()
+                if label:
+                    lines.append(f"{sheet_name}!{row} | {label}")
+    return "\n".join(lines[:500])
+
+
+def suggest_missing_kpis(
+    resolutions: list[KPIResolution],
+    wb_v1: WorkbookData,
+    wb_v2: WorkbookData,
+    cfg: GatewayConfig | None = None,
+    label_col: int = 2,
+) -> list[KPIResolution]:
+    """
+    For unresolved KPIs (empty addr_v1 or addr_v2), ask the LLM to search
+    workbook row labels and propose cell addresses.
+
+    Graceful fallback: returns resolutions unchanged if the gateway is
+    unavailable or returns unparseable output.
+    """
+    from openpyxl.utils import get_column_letter
+
+    missing = [r for r in resolutions if not r.addr_v1 or not r.addr_v2]
+    if not missing:
+        return resolutions
+
+    cfg = cfg or GatewayConfig.from_env()
+    if not cfg.is_configured:
+        log.info("suggest_missing_kpis skipped: gateway not configured")
+        return resolutions
+
+    client = GatewayClient(cfg)
+    if not client.health_check():
+        log.warning("suggest_missing_kpis skipped: gateway health check failed")
+        return resolutions
+
+    v1_index = _collect_row_labels(wb_v1, label_col)
+    v2_index = _collect_row_labels(wb_v2, label_col)
+    kpi_list = "\n".join(f"- {r.kpi_name}" for r in missing)
+
+    user_text = (
+        f"KPI без адресов (нужно найти):\n{kpi_list}\n\n"
+        f"Строки V1:\n{v1_index}\n\n"
+        f"Строки V2:\n{v2_index}"
+    )
+
+    try:
+        result = client.chat(
+            [
+                ChatMessage("system", _SUGGEST_MISSING_SYSTEM),
+                ChatMessage("user", user_text),
+            ],
+            temperature=0.0,
+            max_tokens=1500,
+        )
+    except GatewayError as e:
+        log.warning(
+            f"suggest_missing_kpis failed: {type(e).__name__} "
+            f"cid={getattr(e, 'correlation_id', None)}"
+        )
+        return resolutions
+
+    raw = (result.content or "").strip()
+    start, end = raw.find("["), raw.rfind("]")
+    if start == -1 or end <= start:
+        log.warning("suggest_missing_kpis: LLM returned no JSON array")
+        return resolutions
+
+    try:
+        items = json.loads(raw[start: end + 1])
+        if not isinstance(items, list):
+            raise ValueError("expected list")
+    except (json.JSONDecodeError, ValueError) as exc:
+        log.warning(f"suggest_missing_kpis: JSON parse error ({exc})")
+        return resolutions
+
+    log.info(
+        f"suggest_missing_kpis: model={result.model} items={len(items)} "
+        f"tokens={result.usage.get('total_tokens') if result.usage else None}"
+    )
+
+    missing_by_name = {r.kpi_name: r for r in missing}
+    corrected = list(resolutions)
+
+    def _resolve_key(key: str | None, wb: WorkbookData) -> dict | None:
+        """Parse 'Sheet!row' key → {sheet, row, col, addr, label}."""
+        if not key or "!" not in str(key):
+            return None
+        sheet_name, _, row_str = str(key).partition("!")
+        try:
+            row = int(row_str)
+        except ValueError:
+            return None
+        sd = wb.sheets.get(sheet_name)
+        if not sd:
+            return None
+        label_cd = sd.cells.get((row, label_col))
+        if not label_cd or not label_cd.value:
+            return None
+        # Find best value column (summary or first numeric)
+        from fm_compare.core.kpi_extractor import _find_summary_col
+        from fm_compare.core.utils import is_numeric
+        col = None
+        summary_col = _find_summary_col(sd)
+        if summary_col:
+            c = sd.cells.get((row, summary_col))
+            if c and is_numeric(c.value):
+                col = summary_col
+        if col is None:
+            for c_idx in range(label_col + 1, min(sd.max_col + 1, 200)):
+                c = sd.cells.get((row, c_idx))
+                if c and is_numeric(c.value):
+                    col = c_idx
+                    break
+        col = col or (label_col + 1)
+        return {
+            "sheet": sheet_name,
+            "row": row,
+            "col": col,
+            "addr": f"{sheet_name}!{get_column_letter(col)}{row}",
+            "label": str(label_cd.value).strip(),
+        }
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kpi_name = str(item.get("kpi", ""))
+        if kpi_name not in missing_by_name:
+            continue
+
+        original = missing_by_name[kpi_name]
+        updates: dict = {}
+
+        if not original.addr_v1:
+            info = _resolve_key(item.get("v1_key"), wb_v1)
+            if info:
+                updates.update(
+                    sheet_v1=info["sheet"], row_v1=info["row"], col_v1=info["col"],
+                    addr_v1=info["addr"], label_v1=info["label"], source="llm",
+                )
+
+        if not original.addr_v2:
+            info = _resolve_key(item.get("v2_key"), wb_v2)
+            if info:
+                updates.update(
+                    sheet_v2=info["sheet"], row_v2=info["row"], col_v2=info["col"],
+                    addr_v2=info["addr"], label_v2=info["label"], source="llm",
+                )
+
+        if updates:
+            import dataclasses as _dc
+            new_res = _dc.replace(original, **updates)
+            idx = next((i for i, r in enumerate(corrected) if r.kpi_name == kpi_name), None)
+            if idx is not None:
+                corrected[idx] = new_res
+
+    return corrected

@@ -159,7 +159,13 @@ def stream_chat_turn(
         messages.append(ChatMessage(role, content))
 
     try:
-        yield from client.stream_chat(messages, temperature=0.3)
+        any_yielded = False
+        for fragment in client.stream_chat(messages, temperature=0.3):
+            any_yielded = True
+            yield fragment
+        if not any_yielded:
+            log.warning("Chat stream: gateway returned empty content")
+            yield "Языковая модель вернула пустой ответ. Попробуйте переформулировать вопрос."
     except GatewayError as e:
         # Log only safe metadata — never prompt content or secrets.
         log.warning(
