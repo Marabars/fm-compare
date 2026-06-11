@@ -3,15 +3,17 @@ Persistent application settings stored locally.
 Never stores file paths or business data — only UI preferences and thresholds.
 """
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import logging
+
+from fm_compare.core.paths import app_data_dir
+
 _log = logging.getLogger("fm_compare")
 
 
-_SETTINGS_DIR = Path(os.environ.get("APPDATA", Path.home())) / "FM_Compare"
+_SETTINGS_DIR = app_data_dir()
 _SETTINGS_FILE = _SETTINGS_DIR / "settings.json"
 
 _DEFAULTS: dict[str, Any] = {

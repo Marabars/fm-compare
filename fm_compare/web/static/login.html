@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FM Compare — вход</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="card">
+      <h2>FM Compare</h2>
+      <p class="hint">Введите пароль для доступа к сервису сравнения финансовых моделей.</p>
+      <form method="post" action="/login">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" autofocus required>
+        <button class="btn" type="submit" style="width:100%">Войти</button>
+      </form>
+      <p id="err" class="error-box" style="display:none">Неверный пароль.</p>
+    </div>
+  </div>
+  <script>
+    if (new URLSearchParams(location.search).has("error")) {
+      document.getElementById("err").style.display = "block";
+    }
+  </script>
+</body>
+</html>

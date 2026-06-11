@@ -5,13 +5,14 @@ Forbidden: cell values, formulas, business keys, counterparty names,
 Allowed: operation names, row counts, timing, errors without data.
 """
 import logging
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
+from fm_compare.core.paths import app_data_dir
 
-_LOG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "FM_Compare" / "logs"
+
+_LOG_DIR = app_data_dir() / "logs"
 _logger: logging.Logger | None = None
 _debug_mode = False
 

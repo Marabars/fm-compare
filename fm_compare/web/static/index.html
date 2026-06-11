@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FM Compare — сравнение финансовых моделей</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>FM Compare — сравнение финансовых моделей</h1>
+    <button class="logout" id="logoutBtn">Выйти</button>
+  </header>
+
+  <main>
+    <!-- Step 1: upload -->
+    <section class="card" id="card-upload">
+      <h2><span class="step-num">1</span>Загрузка файлов</h2>
+      <div class="row">
+        <div>
+          <label for="fileV1">Версия 1 (.xlsx / .xlsm)</label>
+          <input type="file" id="fileV1" accept=".xlsx,.xlsm">
+        </div>
+        <div>
+          <label for="fileV2">Версия 2 (.xlsx / .xlsm)</label>
+          <input type="file" id="fileV2" accept=".xlsx,.xlsm">
+        </div>
+        <div>
+          <label for="fileV3">Версия 3 <span class="badge-optional">не обязательно</span></label>
+          <input type="file" id="fileV3" accept=".xlsx,.xlsm">
+        </div>
+      </div>
+      <button class="btn" id="uploadBtn" disabled>Загрузить и прочитать листы</button>
+      <div class="hint">Файлы хранятся временно и удаляются автоматически.</div>
+    </section>
+
+    <!-- Step 2: sheets -->
+    <section class="card disabled" id="card-sheets">
+      <h2><span class="step-num">2</span>Выбор листов</h2>
+      <div class="row" id="sheetsRow">
+        <div>
+          <label>Листы версии 1</label>
+          <div class="sheet-list" id="sheetsV1"></div>
+        </div>
+        <div>
+          <label>Листы версии 2</label>
+          <div class="sheet-list" id="sheetsV2"></div>
+        </div>
+        <div id="sheetsV3Wrap" style="display:none">
+          <label>Листы версии 3</label>
+          <div class="sheet-list" id="sheetsV3"></div>
+        </div>
+      </div>
+      <button class="btn" id="previewBtn">Определить KPI</button>
+    </section>
+
+    <!-- Dashboard: KPI comparison (auto-loaded after resolve-preview) -->
+    <section class="card disabled" id="card-dashboard">
+      <h2><span class="step-num">3</span>Дашборд сравнения KPI</h2>
+      <div class="dash-dates" id="dashDates"></div>
+      <div id="dashDiscrepancies" style="display:none"></div>
+      <div class="dash-wrap">
+        <table class="dash-table" id="dashTable">
+          <thead>
+            <tr>
+              <th class="col-kpi">Показатель</th>
+              <th class="col-v3 v3-col">V3 <span class="date-badge" id="badgeV3"></span></th>
+              <th class="col-delta23 v3-col">Δ (V3→V2)</th>
+              <th class="col-v2">V2 <span class="date-badge" id="badgeV2"></span></th>
+              <th class="col-delta">Δ (V2→V1)</th>
+              <th class="col-pct">Δ%</th>
+              <th class="col-v1">V1 <span class="date-badge" id="badgeV1"></span></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="hint">Нажмите на адрес ячейки (серый чип) чтобы исправить — дашборд пересчитается автоматически.</p>
+    </section>
+
+    <!-- AI chat panel -->
+    <section class="card disabled" id="card-chat">
+      <h2>🤖 ИИ-агент: обсудить модели</h2>
+      <div id="chatMessages" class="chat-messages"></div>
+      <p class="hint">Задайте вопрос по результатам сравнения — агент видит данные дашборда.</p>
+      <div class="chat-input-row">
+        <textarea id="chatInput" rows="2" placeholder="Например: Почему упала выручка? Какие листы сравниваются?"></textarea>
+        <button class="btn" id="chatSendBtn">Отправить</button>
+      </div>
+    </section>
+
+    <!-- Sensitivity analysis (Stage 2) -->
+    <section class="card disabled" id="card-sensitivity">
+      <h2>Анализ чувствительности <span class="badge-optional">(один файл)</span></h2>
+      <p class="hint">Подберите диапазон значений для входных параметров — приложение пересчитает модель через LibreOffice и покажет, как меняются KPI.</p>
+
+      <div class="sens-block">
+        <div class="sens-block-head">
+          <span>Входные параметры</span>
+          <button class="btn-sm" id="sensAddInputBtn">+ Добавить строку</button>
+        </div>
+        <table class="sens-inputs-table" id="sensInputsTable">
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Ячейка (Лист!A1)</th>
+              <th>Ед. изм.</th>
+              <th>Базовое значение</th>
+              <th>Значения через запятую</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="sensInputsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="sens-block">
+        <div class="sens-block-head"><span>Целевые KPI</span></div>
+        <div id="sensKpiList" class="sens-kpi-list"></div>
+      </div>
+
+      <div class="sens-block-head" style="margin-top:12px">
+        <button class="btn" id="sensRunBtn">Запустить анализ</button>
+        <span class="status-msg" id="sensMsgArea"></span>
+      </div>
+
+      <div id="sensResults" style="display:none">
+        <div class="sens-block">
+          <div class="sens-block-head"><span>Результаты</span></div>
+          <div class="sens-results-wrap">
+            <table id="sensResultTable" class="sens-result-table"></table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Step 4: KPI resolution (for full compare) -->
+    <section class="card disabled" id="card-kpi">
+      <h2><span class="step-num">4</span>Проверка адресов KPI (для полного аудита)</h2>
+      <div class="hint">Адреса автоопределены. Исправьте при необходимости (формат: <code>Лист!E42</code>).</div>
+      <div class="kpi-wrap">
+        <table class="kpi" id="kpiTable">
+          <thead>
+            <tr>
+              <th>KPI</th><th>Группа</th>
+              <th>Строка V1</th><th>Ячейка V1</th><th>Ед. V1</th>
+              <th>Строка V2</th><th>Ячейка V2</th><th>Ед. V2</th>
+              <th class="v3-col">Ячейка V3</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Step 5: settings + run -->
+    <section class="card disabled" id="card-run">
+      <h2><span class="step-num">5</span>Параметры и запуск полного аудита</h2>
+      <div class="row">
+        <div>
+          <label for="mode">Режим</label>
+          <select id="mode">
+            <option value="full">Полный аудит</option>
+            <option value="quick">Быстрая проверка KPI</option>
+          </select>
+        </div>
+        <div>
+          <label for="topX">Топ изменений</label>
+          <input type="number" id="topX" value="10" min="2" max="50">
+        </div>
+        <div>
+          <label for="matAbs">Существенность, абс. (руб.)</label>
+          <input type="number" id="matAbs" placeholder="нет">
+        </div>
+        <div>
+          <label for="matPct">Существенность, %</label>
+          <input type="number" id="matPct" placeholder="нет" step="0.1">
+        </div>
+      </div>
+      <button class="btn" id="runBtn">Запустить сравнение</button>
+      <div class="progress" id="progressWrap" style="display:none"><div id="progressBar"></div></div>
+      <div class="status-msg" id="statusMsg"></div>
+      <div id="v2v3StatusWrap" style="display:none">
+        <div class="hint" style="margin-top:10px">Сравнение V2 vs V3:</div>
+        <div class="progress"><div id="progressBarV2V3"></div></div>
+        <div class="status-msg" id="statusMsgV2V3"></div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="card" id="card-results" style="display:none">
+      <h2>Результат</h2>
+      <div id="counts" class="hint"></div>
+      <div id="summaryBlocks"></div>
+      <div class="row" style="gap:12px;flex-wrap:wrap">
+        <button class="btn" id="downloadBtn">Скачать отчёт V1 vs V2</button>
+        <button class="btn btn-secondary" id="downloadBtn2" style="display:none">Скачать отчёт V2 vs V3</button>
+      </div>
+    </section>
+
+    <div id="errorArea"></div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

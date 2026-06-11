@@ -15,6 +15,12 @@ build/
 venv/
 env/
 
+# Secrets — gateway / Keycloak credentials (never commit)
+.env
+.gateway.env
+*.env
+!.env.example
+
 # User data & logs (never commit)
 logs/
 *.log
@@ -35,3 +41,10 @@ business_dictionary.json
 .vscode/
 .idea/
 *.swp
+
+# Local working copies (not part of the repo)
+fm-compare-main/
+
+# Internal documents
+fm_compare/CLAUDE_CODE_GATEWAY_INSTRUCTION.md
+RESUME_CONTEXT.md

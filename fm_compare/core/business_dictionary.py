@@ -5,15 +5,15 @@ Synonyms, Warning Rules, Interpretation Rules, Summary Rules, Dependency Rules.
 """
 from __future__ import annotations
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from fm_compare.core.paths import app_data_dir
 from fm_compare.security import safe_logger as log
 
 
-_DICT_DIR = Path(os.environ.get("APPDATA", Path.home())) / "FM_Compare"
+_DICT_DIR = app_data_dir()
 _DICT_FILE = _DICT_DIR / "business_dictionary.json"
 _DEFAULT_FILE = Path(__file__).parent.parent / "data" / "default_dictionary.json"
 

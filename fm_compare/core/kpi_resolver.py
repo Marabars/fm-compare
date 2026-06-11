@@ -223,6 +223,8 @@ def resolutions_to_overrides(
     for res in resolutions:
         if version == "v1":
             sheet, row, col = res.sheet_v1, res.row_v1, res.col_v1
+        elif version == "v3":
+            sheet, row, col = res.sheet_v3, res.row_v3, res.col_v3
         else:
             sheet, row, col = res.sheet_v2, res.row_v2, res.col_v2
         if sheet and row is not None and col is not None:

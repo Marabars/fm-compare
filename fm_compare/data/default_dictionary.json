@@ -95,6 +95,36 @@
     "площадь": ["area", "площ"],
     "цена": ["price", "стоимость кв.м"]
   },
+  "sensitivity_inputs": [
+    {
+      "name": "Цена реализации (руб./кв.м)",
+      "unit": "руб./кв.м",
+      "search_sheet_pattern": "PRICE|ПРАЙС",
+      "search_row_pattern": "цена.{0,15}реализ|средн.{0,10}цена|price.{0,10}m2|price.{0,10}sqm",
+      "default_step_pct": 10
+    },
+    {
+      "name": "Площадь продаваемая (кв.м)",
+      "unit": "кв.м",
+      "search_sheet_pattern": "SALE|ПРОД|ПРОДАЖ",
+      "search_row_pattern": "площад.{0,10}прод|sell.{0,10}area|total.{0,10}area",
+      "default_step_pct": 10
+    },
+    {
+      "name": "Стоимость СМР (руб.)",
+      "unit": "руб.",
+      "search_sheet_pattern": "COST|ДЕТАЛИ|DETAILS|СМР",
+      "search_row_pattern": "5400|генподряд|смр.{0,10}итого|итого.{0,10}смр",
+      "default_step_pct": 10
+    },
+    {
+      "name": "Ставка финансирования (%)",
+      "unit": "%",
+      "search_sheet_pattern": "FINANCE|ФИНАНС|Расчет %",
+      "search_row_pattern": "ставк.{0,10}кредит|ставк.{0,10}финанс|interest.{0,10}rate",
+      "default_step_pct": 20
+    }
+  ],
   "warning_rules": [
     {"type": "formula_changed_value_same", "severity": "medium", "message": "Изменена логика формулы, значение не изменилось", "manual_check": true},
     {"type": "sign_changed", "severity": "high", "message": "Изменился знак показателя", "manual_check": true},

@@ -114,14 +114,14 @@ def _get_aggregate_value(sd: SheetData, row: int, label_col: int = 2) -> tuple[A
         if cd and is_numeric(cd.value):
             return cd.value, summary_col
 
-    # Fallback: rightmost non-empty numeric
-    for col in range(label_col + 1, sd.max_col + 1):
+    # Fallback: first (leftmost) non-empty numeric column.
+    # Cap at 200 to guard against broken max_col (~1M on FACT/% sheets).
+    for col in range(label_col + 1, min(sd.max_col + 1, 200)):
         cd = sd.cells.get((row, col))
         if cd and is_numeric(cd.value):
-            best_val = cd.value
-            best_col = col
+            return cd.value, col
 
-    return best_val, best_col
+    return None, None
 
 
 def resolve_kpis_preview(
@@ -129,6 +129,7 @@ def resolve_kpis_preview(
     wb_v2: WorkbookData,
     bd: BusinessDictionary,
     label_col: int = 2,
+    wb_v3: WorkbookData | None = None,
 ) -> list[KPIResolution]:
     """
     Phase-1 preview: resolve KPI row/cell addresses for both workbooks
@@ -179,6 +180,23 @@ def resolve_kpis_preview(
             res.unit_v2 = _find_unit_in_row(sd, row_idx, label_col) or kpi.unit
             break
 
+        # Resolve V3 (optional — Stage 4)
+        if wb_v3 is not None:
+            for sheet_name, sd in wb_v3.sheets.items():
+                match = _find_kpi_row(sd, kpi, label_col)
+                if match is None:
+                    continue
+                row_idx, label = match
+                _, col = _get_aggregate_value(sd, row_idx, label_col)
+                col = col or 3
+                res.sheet_v3 = sheet_name
+                res.row_v3 = row_idx
+                res.col_v3 = col
+                res.label_v3 = str(label) if label is not None else ""
+                res.addr_v3 = f"{sheet_name}!{get_column_letter(col)}{row_idx}"
+                res.unit_v3 = _find_unit_in_row(sd, row_idx, label_col) or kpi.unit
+                break
+
         resolutions.append(res)
 
     return resolutions
@@ -188,9 +206,11 @@ def _resolution_to_addr(
     res: KPIResolution,
     version: str,
 ) -> CellAddress | None:
-    """Convert a KPIResolution to a CellAddress for the given version ("v1"/"v2")."""
+    """Convert a KPIResolution to a CellAddress for the given version ("v1"/"v2"/"v3")."""
     if version == "v1":
         sheet, row, col = res.sheet_v1, res.row_v1, res.col_v1
+    elif version == "v3":
+        sheet, row, col = res.sheet_v3, res.row_v3, res.col_v3
     else:
         sheet, row, col = res.sheet_v2, res.row_v2, res.col_v2
     if not sheet or row is None or col is None:

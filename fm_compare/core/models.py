@@ -153,6 +153,13 @@ class KPIResolution:
     addr_v2: str = ""
     unit_v1: str = ""           # unit detected from V1 sheet (e.g. "тыс. руб.")
     unit_v2: str = ""           # unit detected from V2 sheet
+    # V3 — optional (Stage 4: three-version comparison)
+    sheet_v3: str = ""
+    row_v3: int | None = None
+    col_v3: int | None = None
+    label_v3: str = ""
+    addr_v3: str = ""
+    unit_v3: str = ""
     source: str = "auto"        # "auto" | "manual"
 
 
@@ -190,3 +197,75 @@ class CompareResult:
     dependency_graph: dict = field(default_factory=dict)
     workbook_v1: "WorkbookInfo | None" = None
     workbook_v2: "WorkbookInfo | None" = None
+
+
+# ── Article hierarchy (Stage 1a) ────────────────────────────────────────────
+
+@dataclass
+class ArticleNode:
+    """A single article (line item) within a sheet's hierarchy tree."""
+    code: str | None                       # e.g. "5400" if present, else None
+    label: str                             # row label text
+    addr: CellAddress | None               # location of the row label
+    value: Any = None                      # numeric value in the chosen value column
+    level: int = 0                         # nesting depth (0 = top)
+    source: str = "code"                   # "code" | "indent" | "formula" | "llm"
+    children: list["ArticleNode"] = field(default_factory=list)
+
+
+@dataclass
+class ArticleTree:
+    """Hierarchy of articles detected on a single sheet."""
+    sheet: str
+    roots: list[ArticleNode] = field(default_factory=list)
+    # Flat index by code for quick lookup (only nodes that have a code).
+    by_code: dict[str, ArticleNode] = field(default_factory=dict)
+
+
+# ── Cross-sheet / intra-sheet discrepancies (Stage 1b) ──────────────────────
+
+@dataclass
+class Discrepancy:
+    """A detected inconsistency: parent≠sum(children), or same article
+    carrying different totals on two sheets."""
+    kind: str                              # "sum_mismatch" | "cross_sheet"
+    article: str                           # code or label of the article
+    sheet_a: str
+    value_a: Any
+    sheet_b: str | None = None             # None for intra-sheet sum_mismatch
+    value_b: Any = None
+    delta: Any = None
+    delta_pct: float | None = None
+    severity: Severity = Severity.MEDIUM
+    message: str = ""
+    addr_a: CellAddress | None = None
+    addr_b: CellAddress | None = None
+
+
+# ── Sensitivity analysis (Stage 2) ──────────────────────────────────────────
+
+@dataclass
+class SensitivityInput:
+    """One variable input parameter to sweep in sensitivity analysis."""
+    name: str                              # display name, e.g. "Цена реализации"
+    addr: CellAddress                      # cell to patch in the workbook
+    unit: str = ""                         # "руб./кв.м", "%", etc.
+    base_value: float = 0.0               # current (baseline) value read from file
+    values: list[float] = field(default_factory=list)  # values to test
+
+
+@dataclass
+class SensitivityScenario:
+    """Result of one recalculated scenario."""
+    inputs: dict[str, float]              # input name → value used in this scenario
+    kpi_values: dict[str, float | None]   # KPI name → computed value
+    label: str = ""                        # short human-readable identifier
+
+
+@dataclass
+class SensitivityResult:
+    """Aggregated results of a full sensitivity run."""
+    base_scenario: SensitivityScenario    # run with all inputs at base_value
+    scenarios: list[SensitivityScenario]  # one-at-a-time variations
+    input_names: list[str]                # ordered input parameter names
+    kpi_names: list[str]                  # ordered KPI names
