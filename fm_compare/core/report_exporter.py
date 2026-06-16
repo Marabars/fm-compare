@@ -26,6 +26,9 @@ from fm_compare.core.business_dictionary import BusinessDictionary
 from fm_compare.security import safe_logger as log
 
 
+# Max numbered fallbacks when the target file is locked (e.g. open in Excel).
+MAX_SAVE_CANDIDATES = 50
+
 # Color palette
 C_GREEN = "C6EFCE"
 C_RED = "FFC7CE"
@@ -118,40 +121,64 @@ def export_report(
     wb = Workbook()
     wb.remove(wb.active)
 
+    # Only the four lightweight summary sheets are exported. The full per-row
+    # sheets (Business Diff, Formula Changes, Raw Diff, Warnings, etc.) could
+    # reach hundreds of thousands of styled rows, producing ~50 MB files that
+    # took minutes to build/save on network shares and often hung or wouldn't
+    # open. The detailed data stays available in the in-app results view.
     _add_executive_summary(wb, result, mode)
     _add_kpi_comparison(wb, result.kpi_values)
     _add_top_changes(wb, result.diff_rows, result.run_settings.get("top_x", 10))
-    _add_business_diff(wb, result.diff_rows, mode)
-    _add_formula_changes(wb, result.formula_changes)
     _add_timing_shifts(wb, result.timing_shifts)
-
-    # Hidden sheets
-    _add_comments_changes(wb, result.comment_changes)
-    _add_hidden_rows_changes(wb, result.hidden_row_changes)
-    _add_warnings(wb, result.warnings)
-
-    if mode == CompareMode.FULL:
-        _add_raw_diff(wb, result.raw_diff_rows)
-
-    _add_run_settings(wb, result.run_settings, mode)
-    _add_dictionary_export(wb, bd)
 
     # Set Executive Summary as first active sheet
     wb.active = wb["Executive Summary"]
 
-    # Write to temp, then atomically replace final path.
-    # Use with_name() to avoid Path.with_suffix() rejecting multi-dot suffixes on Python 3.12+.
-    # shutil.move handles cross-device (UNC) moves.
-    import shutil
-    tmp = output_path.with_name(output_path.stem + "_tmp.xlsx")
-    wb.save(str(tmp))
-    try:
-        tmp.replace(output_path)
-    except OSError:
-        shutil.move(str(tmp), str(output_path))
+    final = _save_workbook(wb, output_path)
+    log.info(f"Report exported ({final.stat().st_size // 1024} KB)")
+    return final
 
-    log.info(f"Report exported ({output_path.stat().st_size // 1024} KB)")
-    return output_path
+
+def _save_workbook(wb: Workbook, output_path: Path) -> Path:
+    """Save ``wb`` to ``output_path``, falling back to a numbered name.
+
+    If the target is locked (e.g. the previous report is still open in Excel),
+    Path.replace / shutil.move raise PermissionError; instead of failing we try
+    "name (2).xlsx", "name (3).xlsx", … so the user can always save. A temp file
+    is written alongside the candidate and atomically moved into place; any
+    leftover temp from a failed candidate is removed before advancing.
+    """
+    import shutil
+
+    stem, suffix = output_path.stem, output_path.suffix or ".xlsx"
+    for n in range(1, MAX_SAVE_CANDIDATES + 1):
+        if n == 1:
+            candidate = output_path
+        else:
+            candidate = output_path.with_name(f"{stem} ({n}){suffix}")
+        tmp = candidate.with_name(candidate.stem + "_tmp.xlsx")
+        try:
+            wb.save(str(tmp))
+            try:
+                tmp.replace(candidate)
+            except OSError:
+                shutil.move(str(tmp), str(candidate))
+            return candidate
+        except OSError as exc:
+            # Candidate (or its temp) is locked/unwritable — clean up and retry
+            # under the next numbered name.
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            log.warning(f"Save candidate #{n} failed ({type(exc).__name__}); trying next name")
+            continue
+
+    raise OSError(
+        f"Не удалось сохранить отчёт: целевой файл занят, и все "
+        f"{MAX_SAVE_CANDIDATES} альтернативных имён недоступны. "
+        f"Закройте открытый отчёт в Excel и попробуйте снова."
+    )
 
 
 def _add_executive_summary(wb: Workbook, result: CompareResult, mode: CompareMode) -> None:
